@@ -1,0 +1,35 @@
+[package]
+name = "nexus-link-desktop"
+version = "0.1.0"
+description = "NexusLink Desktop — Application locale légère de liaison PC-Android"
+authors = ["NexusLink"]
+edition = "2024"
+
+[lib]
+name = "nexus_link_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+mdns-sd = "0.11"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+local-ip-address = "0.6"
+uuid = { version = "1", features = ["v4"] }
+hostname = "0.4"
+window-vibrancy = "0.8"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
