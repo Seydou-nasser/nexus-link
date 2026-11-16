@@ -1,0 +1,36 @@
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Node / Frontend (Tauri Desktop UI)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Rust / Tauri Backend
+target/
+**/target/
+Cargo.lock
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+*.keystore
+*.jks
+
+# Local runtime & secrets
+*.env
+.env.*
+paired_devices.json
