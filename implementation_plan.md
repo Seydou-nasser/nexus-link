@@ -98,6 +98,15 @@ flowchart LR
   - `android/app/src/main/java/com/nexuslink/android/ui/MainScreen.kt` & `MainActivity.kt` : Écran principal permettant soit de scanner le QR Code, soit de cliquer sur un PC découvert via mDNS, soit de coller le JSON d'appairage (pratique sur émulateur sans caméra), et affichant l'état de la liaison en direct.
   - **Critère de validation de fin du Jalon 1** : L'application Android se connecte réellement au serveur Rust du PC et l'interface PC affiche les vraies informations du téléphone.
 
+### 2.3. Appairage en un clic (sans QR), code à 6 chiffres & mémorisation [TERMINÉ]
+- [x] **2.3.1. Protocole & Côté PC (`docs/`, `desktop/`)** :
+  - Mise à jour de `PAIRING_REQUEST` dans `docs/protocol-spec.md`, `protocol.rs` et `ProtocolModels.kt` (modes `QR`, `MANUAL` avec code à 6 chiffres, et `RECONNECT` avec `sessionSecret`).
+  - Mémorisation locale des appareils appairés sur le PC (`paired_devices.json`) pour reconnexion automatique après redémarrage.
+  - Notification Windows + mise au premier plan + boîte de dialogue dans NexusLink avec le code à 6 chiffres et les boutons **Accepter / Refuser**.
+- [x] **2.3.2. Côté Android (`android/`)** :
+  - Suppression de l'adresse IP dans la notification persistante (`ConnectionForegroundService.kt`).
+  - Liste **« Ordinateurs à proximité »** cliquable avec affichage du code à 6 chiffres pendant l'attente de confirmation sur le PC.
+
 ---
 
 ## Étape 3 — Jalon 2 : Batterie, « Trouver mon téléphone », Presse-papiers et Transfert de fichiers

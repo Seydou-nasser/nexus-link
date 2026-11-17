@@ -59,13 +59,17 @@ Tous les messages JSON échangés sur le canal WebSocket respectent la structure
 - **`PAIRING_REQUEST`** (Android $\rightarrow$ PC) :
   ```json
   {
+    "mode": "QR",
     "pairingToken": "8f9d2a...",
+    "sessionSecret": null,
+    "verificationCode": null,
     "deviceId": "android-uuid",
     "deviceName": "Pixel 8 Pro",
     "model": "Pixel 8 Pro",
     "androidVersion": "14"
   }
   ```
+  *(Modes possibles : `"QR"` avec `pairingToken`, `"MANUAL"` avec `verificationCode` à 6 chiffres, ou `"RECONNECT"` avec `sessionSecret` déjà mémorisé).*
 - **`PAIRING_RESPONSE`** (PC $\rightarrow$ Android) :
   ```json
   {
