@@ -11,6 +11,15 @@ export interface ConnectedDevice {
   connectedAt: string;
 }
 
+export interface PendingPairingRequest {
+  requestId: string;
+  deviceId: string;
+  deviceName: string;
+  model: string;
+  androidVersion: string;
+  verificationCode: string;
+}
+
 export interface ServerStatus {
   deviceId: string;
   deviceName: string;
@@ -24,4 +33,5 @@ export interface ServerStatus {
   mdnsActive: boolean;
   wsListening: boolean;
   connectedDevice: ConnectedDevice | null;
+  pendingPairing: PendingPairingRequest | null;
 }

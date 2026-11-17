@@ -35,7 +35,7 @@ fn regenerate_pairing_token(
     status
 }
 
-/// Déconnecte l'appareil Android actuellement associé
+/// Déconnecte et oublie l'appareil Android actuellement associé
 #[tauri::command]
 fn disconnect_device(
     state: State<'_, Arc<Mutex<NetworkState>>>,
@@ -43,11 +43,40 @@ fn disconnect_device(
 ) -> ServerStatus {
     let status = {
         let mut guard = state.lock().unwrap();
-        guard.connected_device = None;
+        guard.disconnect_active_device();
         guard.to_server_status()
     };
     emit_status_update(&state, &app_handle);
     status
+}
+
+/// Accepte ou refuse une demande de connexion manuelle en attente (avec code à 6 chiffres)
+#[tauri::command]
+fn respond_to_pairing_request(
+    request_id: String,
+    accepted: bool,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> ServerStatus {
+    let sender = {
+        let mut guard = state.lock().unwrap();
+        if guard
+            .pending_pairing
+            .as_ref()
+            .is_some_and(|p| p.request_id == request_id)
+        {
+            guard.pending_pairing = None;
+        }
+        guard.pending_approvals.remove(&request_id)
+    };
+
+    if let Some(tx) = sender {
+        let _ = tx.send(accepted);
+    }
+
+    emit_status_update(&state, &app_handle);
+    let guard = state.lock().unwrap();
+    guard.to_server_status()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -57,8 +86,16 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Arc::clone(&shared_state))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Charge les appareils mémorisés dans %APPDATA%/com.nexuslink.desktop/paired_devices.json
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                let storage_path = app_data_dir.join("paired_devices.json");
+                let mut guard = shared_state.lock().unwrap();
+                guard.load_paired_devices(storage_path);
+            }
 
             // Active l'effet natif Mica sombre sous Windows 11 (avec repli Acrylic)
             #[cfg(target_os = "windows")]
@@ -97,7 +134,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_server_status,
             regenerate_pairing_token,
-            disconnect_device
+            disconnect_device,
+            respond_to_pairing_request
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");

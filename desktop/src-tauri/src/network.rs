@@ -1,20 +1,25 @@
+use std::collections::HashMap;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::list_afinet_netifas;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use qrcode::render::svg;
 use qrcode::QrCode;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 use crate::protocol::{
-    ConnectedDevice, DeviceStatusPayload, PairingQrPayload, PairingRequestPayload,
-    PairingResponsePayload, ServerStatus, WsEnvelope,
+    ConnectedDevice, DeviceStatusPayload, PairedDeviceRecord, PairingQrPayload,
+    PairingRequestPayload, PairingResponsePayload, PendingPairingRequest, ServerStatus, WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
@@ -30,10 +35,14 @@ pub struct NetworkState {
     pub udp_port: u16,
     pub http_port: u16,
     pub pairing_token: String,
-    pub session_secret: String,
     pub mdns_active: bool,
     pub ws_listening: bool,
     pub connected_device: Option<ConnectedDevice>,
+    pub active_ws_tx: Option<mpsc::UnboundedSender<String>>,
+    pub pending_pairing: Option<PendingPairingRequest>,
+    pub pending_approvals: HashMap<String, oneshot::Sender<bool>>,
+    pub paired_devices: HashMap<String, PairedDeviceRecord>,
+    pub storage_path: Option<PathBuf>,
 }
 
 impl NetworkState {
@@ -45,7 +54,6 @@ impl NetworkState {
             .unwrap_or_else(|| "PC-NexusLink".to_string());
         let local_ips = detect_local_ipv4_addresses();
         let pairing_token = generate_hex_token();
-        let session_secret = generate_hex_token();
 
         Self {
             device_id,
@@ -55,11 +63,64 @@ impl NetworkState {
             udp_port: DEFAULT_UDP_PORT,
             http_port: DEFAULT_HTTP_PORT,
             pairing_token,
-            session_secret,
             mdns_active: false,
             ws_listening: false,
             connected_device: None,
+            active_ws_tx: None,
+            pending_pairing: None,
+            pending_approvals: HashMap::new(),
+            paired_devices: HashMap::new(),
+            storage_path: None,
         }
+    }
+
+    /// Charge la liste des téléphones déjà appairés depuis `paired_devices.json`
+    pub fn load_paired_devices(&mut self, storage_path: PathBuf) {
+        self.storage_path = Some(storage_path.clone());
+        if let Ok(content) = fs::read_to_string(&storage_path) {
+            if let Ok(records) = serde_json::from_str::<Vec<PairedDeviceRecord>>(&content) {
+                self.paired_devices.clear();
+                for record in records {
+                    self.paired_devices.insert(record.device_id.clone(), record);
+                }
+            }
+        }
+    }
+
+    /// Enregistre la liste des téléphones appairés sur disque
+    pub fn save_paired_devices(&self) {
+        let Some(ref path) = self.storage_path else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let records: Vec<&PairedDeviceRecord> = self.paired_devices.values().collect();
+        if let Ok(json_str) = serde_json::to_string_pretty(&records) {
+            let _ = fs::write(path, json_str);
+        }
+    }
+
+    /// Déconnecte l'appareil actif, le retire des appareils mémorisés et notifie Android
+    pub fn disconnect_active_device(&mut self) {
+        if let Some(ref device) = self.connected_device {
+            let device_id = device.device_id.clone();
+            self.paired_devices.remove(&device_id);
+            self.save_paired_devices();
+        }
+        if let Some(tx) = self.active_ws_tx.take() {
+            let unpair_envelope = WsEnvelope {
+                id: Uuid::new_v4().to_string(),
+                timestamp: current_epoch_millis(),
+                message_type: "PEER_UNPAIRED".to_string(),
+                payload: serde_json::json!({}),
+            };
+            if let Ok(json_msg) = serde_json::to_string(&unpair_envelope) {
+                let _ = tx.send(json_msg);
+            }
+            drop(tx);
+        }
+        self.connected_device = None;
     }
 
     /// Construit l'état complet sérialisable avec le QR Code SVG à jour
@@ -91,6 +152,7 @@ impl NetworkState {
             mdns_active: self.mdns_active,
             ws_listening: self.ws_listening,
             connected_device: self.connected_device.clone(),
+            pending_pairing: self.pending_pairing.clone(),
         }
     }
 }
@@ -102,7 +164,6 @@ pub fn detect_local_ipv4_addresses() -> Vec<String> {
         for (_name, ip) in interfaces {
             if ip.is_ipv4() && !ip.is_loopback() {
                 let ip_str = ip.to_string();
-                // Ignore les adresses APIPA (169.254.x.x)
                 if !ip_str.starts_with("169.254.") && !ips.contains(&ip_str) {
                     ips.push(ip_str);
                 }
@@ -117,11 +178,7 @@ pub fn detect_local_ipv4_addresses() -> Vec<String> {
 
 /// Génère un jeton hexadécimal aléatoire de 64 caractères (256 bits)
 pub fn generate_hex_token() -> String {
-    format!(
-        "{}{}",
-        Uuid::new_v4().simple(),
-        Uuid::new_v4().simple()
-    )
+    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
 /// Génère une image SVG à partir de la chaîne JSON d'appairage
@@ -220,7 +277,6 @@ async fn handle_ws_connection(
     state: Arc<Mutex<NetworkState>>,
     app_handle: AppHandle,
 ) {
-    // Désactive l'algorithme de Nagle pour réduire la latence des messages
     let _ = stream.set_nodelay(true);
 
     let ws_stream = match tokio_tungstenite::accept_async(stream).await {
@@ -229,99 +285,253 @@ async fn handle_ws_connection(
     };
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
     let mut is_authenticated = false;
 
-    while let Some(Ok(msg)) = ws_receiver.next().await {
-        if let Message::Text(text) = msg {
-            let envelope: WsEnvelope = match serde_json::from_str(&text) {
-                Ok(env) => env,
-                Err(_) => continue,
-            };
-
-            match envelope.message_type.as_str() {
-                "PAIRING_REQUEST" => {
-                    if let Ok(req) =
-                        serde_json::from_value::<PairingRequestPayload>(envelope.payload)
-                    {
-                        let (accepted, pc_name, session_secret) = {
-                            let mut guard = state.lock().unwrap();
-                            if req.pairing_token == guard.pairing_token {
-                                is_authenticated = true;
-                                guard.connected_device = Some(ConnectedDevice {
-                                    device_id: req.device_id,
-                                    device_name: req.device_name,
-                                    model: req.model,
-                                    android_version: req.android_version,
-                                    ip_address: peer_addr.ip().to_string(),
-                                    battery_level: 100,
-                                    is_charging: false,
-                                    ringer_mode: "NORMAL".to_string(),
-                                    screen_awake: true,
-                                    connected_at: current_time_label(),
-                                });
-                                (true, guard.device_name.clone(), guard.session_secret.clone())
-                            } else {
-                                (false, guard.device_name.clone(), String::new())
-                            }
-                        };
-
-                        let response_payload = PairingResponsePayload {
-                            accepted,
-                            session_secret,
-                            pc_name,
-                            error_message: if accepted {
-                                None
-                            } else {
-                                Some("Jeton d'appairage invalide".to_string())
-                            },
-                        };
-
-                        let response_envelope = WsEnvelope {
-                            id: Uuid::new_v4().to_string(),
-                            timestamp: current_epoch_millis(),
-                            message_type: "PAIRING_RESPONSE".to_string(),
-                            payload: serde_json::to_value(response_payload).unwrap_or_default(),
-                        };
-
-                        if let Ok(resp_json) = serde_json::to_string(&response_envelope) {
-                            let _ = ws_sender.send(Message::Text(resp_json.into())).await;
-                        }
-
-                        if accepted {
-                            emit_status_update(&state, &app_handle);
-                        } else {
+    loop {
+        tokio::select! {
+            outgoing = out_rx.recv() => {
+                match outgoing {
+                    Some(text) => {
+                        if ws_sender.send(Message::Text(text.into())).await.is_err() {
                             break;
                         }
                     }
-                }
-                "DEVICE_STATUS_UPDATE" if is_authenticated => {
-                    if let Ok(status_update) =
-                        serde_json::from_value::<DeviceStatusPayload>(envelope.payload)
-                    {
-                        {
-                            let mut guard = state.lock().unwrap();
-                            if let Some(ref mut device) = guard.connected_device {
-                                device.battery_level = status_update.battery_level;
-                                device.is_charging = status_update.is_charging;
-                                device.ringer_mode = status_update.ringer_mode;
-                                device.screen_awake = status_update.screen_awake;
-                            }
-                        }
-                        emit_status_update(&state, &app_handle);
+                    None => {
+                        let _ = ws_sender.close().await;
+                        break;
                     }
                 }
-                _ => {}
+            }
+            incoming = ws_receiver.next() => {
+                let Some(Ok(msg)) = incoming else {
+                    break;
+                };
+                if let Message::Text(text) = msg {
+                    let envelope: WsEnvelope = match serde_json::from_str(&text) {
+                        Ok(env) => env,
+                        Err(_) => continue,
+                    };
+
+                    match envelope.message_type.as_str() {
+                        "PAIRING_REQUEST" => {
+                            if let Ok(req) =
+                                serde_json::from_value::<PairingRequestPayload>(envelope.payload)
+                            {
+                                let (accepted, pc_name, session_secret, error_message) =
+                                    process_pairing_request(&req, peer_addr, &state, &app_handle).await;
+
+                                is_authenticated = accepted;
+
+                                let response_payload = PairingResponsePayload {
+                                    accepted,
+                                    session_secret,
+                                    pc_name,
+                                    error_message,
+                                };
+
+                                let response_envelope = WsEnvelope {
+                                    id: Uuid::new_v4().to_string(),
+                                    timestamp: current_epoch_millis(),
+                                    message_type: "PAIRING_RESPONSE".to_string(),
+                                    payload: serde_json::to_value(response_payload).unwrap_or_default(),
+                                };
+
+                                if let Ok(resp_json) = serde_json::to_string(&response_envelope) {
+                                    let _ = ws_sender.send(Message::Text(resp_json.into())).await;
+                                }
+
+                                if accepted {
+                                    {
+                                        let mut guard = state.lock().unwrap();
+                                        guard.active_ws_tx = Some(out_tx.clone());
+                                    }
+                                    emit_status_update(&state, &app_handle);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        "DEVICE_STATUS_UPDATE" if is_authenticated => {
+                            if let Ok(status_update) =
+                                serde_json::from_value::<DeviceStatusPayload>(envelope.payload)
+                            {
+                                {
+                                    let mut guard = state.lock().unwrap();
+                                    if let Some(ref mut device) = guard.connected_device {
+                                        device.battery_level = status_update.battery_level;
+                                        device.is_charging = status_update.is_charging;
+                                        device.ringer_mode = status_update.ringer_mode;
+                                        device.screen_awake = status_update.screen_awake;
+                                    }
+                                }
+                                emit_status_update(&state, &app_handle);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
 
-    // Si la connexion d'un appareil authentifié se ferme, on met à jour le statut
     if is_authenticated {
         {
             let mut guard = state.lock().unwrap();
+            guard.active_ws_tx = None;
             guard.connected_device = None;
         }
         emit_status_update(&state, &app_handle);
+    }
+}
+
+/// Traite une demande d'appairage (reconnexion par secret, QR Code ou demande manuelle avec code 6 chiffres)
+async fn process_pairing_request(
+    req: &PairingRequestPayload,
+    peer_addr: SocketAddr,
+    state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+) -> (bool, String, String, Option<String>) {
+    let mode = req.mode.as_deref().unwrap_or("QR");
+
+    // 1. Vérification automatique : appareil déjà mémorisé ou jeton QR valide
+    let immediate_result = {
+        let mut guard = state.lock().unwrap();
+        let pc_name = guard.device_name.clone();
+
+        let matched_known_device = req.session_secret.as_ref().and_then(|secret| {
+            guard
+                .paired_devices
+                .get(&req.device_id)
+                .filter(|record| &record.session_secret == secret)
+                .map(|record| record.session_secret.clone())
+        });
+
+        if let Some(existing_secret) = matched_known_device {
+            register_connected_device(&mut guard, req, peer_addr, &existing_secret);
+            Some((true, pc_name, existing_secret, None))
+        } else if req.pairing_token.as_deref() == Some(guard.pairing_token.as_str()) {
+            let new_secret = generate_hex_token();
+            register_connected_device(&mut guard, req, peer_addr, &new_secret);
+            Some((true, pc_name, new_secret, None))
+        } else if mode != "MANUAL" {
+            Some((
+                false,
+                pc_name,
+                String::new(),
+                Some("Jeton d'appairage ou session invalide".to_string()),
+            ))
+        } else {
+            None
+        }
+    };
+
+    if let Some(res) = immediate_result {
+        return res;
+    }
+
+    // 2. Mode MANUEL : demande de confirmation à l'utilisateur sur le PC avec code à 6 chiffres
+    let request_id = Uuid::new_v4().to_string();
+    let verification_code = req
+        .verification_code
+        .clone()
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or_else(|| format!("{:06}", (current_epoch_millis() % 900_000) + 100_000));
+
+    let (tx, rx) = oneshot::channel::<bool>();
+
+    {
+        let mut guard = state.lock().unwrap();
+        guard.pending_pairing = Some(PendingPairingRequest {
+            request_id: request_id.clone(),
+            device_id: req.device_id.clone(),
+            device_name: req.device_name.clone(),
+            model: req.model.clone(),
+            android_version: req.android_version.clone(),
+            verification_code: verification_code.clone(),
+        });
+        guard.pending_approvals.insert(request_id.clone(), tx);
+    }
+
+    emit_status_update(state, app_handle);
+    notify_and_focus_window(app_handle, &req.device_name);
+
+    // Attend la validation utilisateur (60 secondes max)
+    let user_accepted = matches!(tokio::time::timeout(Duration::from_secs(60), rx).await, Ok(Ok(true)));
+
+    let mut guard = state.lock().unwrap();
+    guard.pending_approvals.remove(&request_id);
+    if guard
+        .pending_pairing
+        .as_ref()
+        .is_some_and(|p| p.request_id == request_id)
+    {
+        guard.pending_pairing = None;
+    }
+    let pc_name = guard.device_name.clone();
+
+    if user_accepted {
+        let new_secret = generate_hex_token();
+        register_connected_device(&mut guard, req, peer_addr, &new_secret);
+        drop(guard);
+        emit_status_update(state, app_handle);
+        (true, pc_name, new_secret, None)
+    } else {
+        drop(guard);
+        emit_status_update(state, app_handle);
+        (
+            false,
+            pc_name,
+            String::new(),
+            Some("Demande refusée ou expirée sur l'ordinateur".to_string()),
+        )
+    }
+}
+
+fn register_connected_device(
+    guard: &mut NetworkState,
+    req: &PairingRequestPayload,
+    peer_addr: SocketAddr,
+    session_secret: &str,
+) {
+    guard.connected_device = Some(ConnectedDevice {
+        device_id: req.device_id.clone(),
+        device_name: req.device_name.clone(),
+        model: req.model.clone(),
+        android_version: req.android_version.clone(),
+        ip_address: peer_addr.ip().to_string(),
+        battery_level: 100,
+        is_charging: false,
+        ringer_mode: "NORMAL".to_string(),
+        screen_awake: true,
+        connected_at: current_time_label(),
+    });
+
+    guard.paired_devices.insert(
+        req.device_id.clone(),
+        PairedDeviceRecord {
+            device_id: req.device_id.clone(),
+            device_name: req.device_name.clone(),
+            model: req.model.clone(),
+            session_secret: session_secret.to_string(),
+        },
+    );
+    guard.save_paired_devices();
+}
+
+/// Affiche une notification Windows native et place la fenêtre NexusLink au premier plan
+fn notify_and_focus_window(app_handle: &AppHandle, device_name: &str) {
+    let _ = app_handle
+        .notification()
+        .builder()
+        .title("Demande de connexion NexusLink")
+        .body(format!("{} souhaite se connecter à cet ordinateur.", device_name))
+        .show();
+
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
 }
 

@@ -58,6 +58,18 @@ function App() {
     }
   };
 
+  const handleRespondToPairing = async (requestId: string, accepted: boolean) => {
+    try {
+      const updated = await invoke<ServerStatus>("respond_to_pairing_request", {
+        requestId,
+        accepted,
+      });
+      setStatus(updated);
+    } catch (error) {
+      console.error("Erreur lors de la réponse à l'appairage :", error);
+    }
+  };
+
   useEffect(() => {
     fetchServerStatus();
 
@@ -455,6 +467,56 @@ function App() {
 
       {/* 3. Barre d'état inférieure */}
       <StatusBar status={status} />
+
+      {/* Boîte de confirmation d'association manuelle (sans QR Code) */}
+      {status.pendingPairing && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-[#13151d] border border-white/[0.12] shadow-2xl p-6 space-y-5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center text-indigo-400 shrink-0">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-[16px] font-semibold text-zinc-100">
+                  Demande de connexion
+                </h3>
+                <p className="text-[13px] text-zinc-400">
+                  <strong>{status.pendingPairing.deviceName}</strong> souhaite se
+                  connecter à cet ordinateur.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-[#0c0d12] border border-white/[0.08] p-4 text-center space-y-1.5">
+              <div className="text-[12px] text-zinc-400">
+                Vérifiez que ce code correspond à celui affiché sur votre téléphone
+              </div>
+              <div className="text-3xl font-bold tracking-[0.28em] font-mono-tabular text-indigo-300 py-1">
+                {status.pendingPairing.verificationCode}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                onClick={() =>
+                  handleRespondToPairing(status.pendingPairing!.requestId, false)
+                }
+                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-zinc-300 transition cursor-pointer"
+              >
+                Refuser
+              </button>
+              <button
+                onClick={() =>
+                  handleRespondToPairing(status.pendingPairing!.requestId, true)
+                }
+                className="h-9 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[13px] font-medium text-white transition cursor-pointer"
+              >
+                Accepter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Palette de commandes rapides (Ctrl+K) */}
       {commandPaletteOpen && (

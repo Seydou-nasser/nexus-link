@@ -30,6 +30,28 @@ pub struct ConnectedDevice {
     pub connected_at: String,
 }
 
+/// Demande d'association manuelle en attente de confirmation sur le PC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPairingRequest {
+    pub request_id: String,
+    pub device_id: String,
+    pub device_name: String,
+    pub model: String,
+    pub android_version: String,
+    pub verification_code: String,
+}
+
+/// Enregistrement persisté d'un téléphone déjà appairé sur ce PC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairedDeviceRecord {
+    pub device_id: String,
+    pub device_name: String,
+    pub model: String,
+    pub session_secret: String,
+}
+
 /// État global du serveur PC renvoyé à l'interface React
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +68,7 @@ pub struct ServerStatus {
     pub mdns_active: bool,
     pub ws_listening: bool,
     pub connected_device: Option<ConnectedDevice>,
+    pub pending_pairing: Option<PendingPairingRequest>,
 }
 
 /// Enveloppe générique des messages JSON échangés sur le WebSocket
@@ -59,18 +82,25 @@ pub struct WsEnvelope {
     pub payload: serde_json::Value,
 }
 
-/// Charge utile envoyée par Android lors de la demande d'appairage initial
+/// Charge utile envoyée par Android lors de la demande d'appairage (QR, MANUEL ou RECONNECT)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingRequestPayload {
-    pub pairing_token: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub pairing_token: Option<String>,
+    #[serde(default)]
+    pub session_secret: Option<String>,
+    #[serde(default)]
+    pub verification_code: Option<String>,
     pub device_id: String,
     pub device_name: String,
     pub model: String,
     pub android_version: String,
 }
 
-/// Réponse envoyée par le PC après vérification du jeton d'appairage
+/// Réponse envoyée par le PC après vérification ou confirmation utilisateur
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingResponsePayload {
