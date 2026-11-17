@@ -1,3 +1,4 @@
+pub mod clipboard;
 pub mod network;
 pub mod protocol;
 pub mod tray;
@@ -9,7 +10,7 @@ use crate::network::{
     detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
     start_mdns_advertisement, start_websocket_server, NetworkState,
 };
-use crate::protocol::ServerStatus;
+use crate::protocol::{ClipboardHistoryEntry, ServerStatus};
 
 /// Renvoie l'état actuel du serveur et le QR Code d'appairage à l'interface React
 #[tauri::command]
@@ -79,6 +80,43 @@ fn respond_to_pairing_request(
     guard.to_server_status()
 }
 
+/// Déclenche ou arrête la sonnerie maximale sur le téléphone connecté
+#[tauri::command]
+fn trigger_find_my_phone(
+    ringing: bool,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> bool {
+    let action = if ringing {
+        "START_RINGING"
+    } else {
+        "STOP_RINGING"
+    };
+    let guard = state.lock().unwrap();
+    guard.send_ws_message(
+        "FIND_MY_PHONE_COMMAND",
+        serde_json::json!({ "action": action }),
+    )
+}
+
+/// Renvoie l'historique récent du presse-papiers partagé
+#[tauri::command]
+fn get_clipboard_history(
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Vec<ClipboardHistoryEntry> {
+    let guard = state.lock().unwrap();
+    guard.clipboard_history.clone()
+}
+
+/// Envoie manuellement un texte dans le presse-papiers du téléphone connecté
+#[tauri::command]
+fn send_clipboard_to_phone(
+    content: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> bool {
+    clipboard::push_clipboard_to_phone(content, &state, &app_handle)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -115,6 +153,13 @@ pub fn run() {
                 start_mdns_advertisement(mdns_state, mdns_app);
             });
 
+            // Démarre la surveillance du presse-papiers sur un fil d'exécution dédié
+            let clip_state = Arc::clone(&shared_state);
+            let clip_app = app_handle.clone();
+            std::thread::spawn(move || {
+                clipboard::start_clipboard_monitor(clip_state, clip_app);
+            });
+
             // Démarre le serveur WebSocket local dans le runtime asynchrone de Tauri
             let ws_state = Arc::clone(&shared_state);
             let ws_app = app_handle.clone();
@@ -135,7 +180,10 @@ pub fn run() {
             get_server_status,
             regenerate_pairing_token,
             disconnect_device,
-            respond_to_pairing_request
+            respond_to_pairing_request,
+            trigger_find_my_phone,
+            get_clipboard_history,
+            send_clipboard_to_phone
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");

@@ -119,3 +119,20 @@ pub struct DeviceStatusPayload {
     pub ringer_mode: String,
     pub screen_awake: bool,
 }
+
+/// Charge utile de synchronisation du presse-papiers texte (PC <-> Android)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardSyncPayload {
+    pub mime_type: String,
+    pub content: String,
+}
+
+/// Entrée de l'historique du presse-papiers partagé affiché dans l'interface PC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardHistoryEntry {
+    pub content: String,
+    pub source: String,
+    pub timestamp: String,
+}

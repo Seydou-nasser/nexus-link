@@ -20,6 +20,12 @@ export interface PendingPairingRequest {
   verificationCode: string;
 }
 
+export interface ClipboardHistoryEntry {
+  content: string;
+  source: string;
+  timestamp: string;
+}
+
 export interface ServerStatus {
   deviceId: string;
   deviceName: string;
@@ -34,4 +40,10 @@ export interface ServerStatus {
   wsListening: boolean;
   connectedDevice: ConnectedDevice | null;
   pendingPairing: PendingPairingRequest | null;
+}
+
+export interface ClipboardHistoryEntry {
+  content: string;
+  source: string;
+  timestamp: string;
 }

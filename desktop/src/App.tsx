@@ -18,7 +18,7 @@ import {
 import { Sidebar, type NavSectionId } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
-import type { ServerStatus } from "./types/protocol";
+import type { ClipboardHistoryEntry, ServerStatus } from "./types/protocol";
 import "./App.css";
 
 type ScreenEdge = "LEFT" | "RIGHT" | "BOTTOM";
@@ -30,6 +30,8 @@ function App() {
   const [edgeResistanceMs, setEdgeResistanceMs] = useState<number>(120);
   const [requireCtrlKey, setRequireCtrlKey] = useState<boolean>(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
+  const [isRingingPhone, setIsRingingPhone] = useState<boolean>(false);
+  const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryEntry[]>([]);
 
   const fetchServerStatus = async () => {
     try {
@@ -70,13 +72,40 @@ function App() {
     }
   };
 
+  const handleToggleRingPhone = async () => {
+    const nextRinging = !isRingingPhone;
+    try {
+      const sent = await invoke<boolean>("trigger_find_my_phone", {
+        ringing: nextRinging,
+      });
+      if (sent) {
+        setIsRingingPhone(nextRinging);
+      }
+    } catch (error) {
+      console.error("Impossible de déclencher la sonnerie :", error);
+    }
+  };
+
   useEffect(() => {
     fetchServerStatus();
+    invoke<ClipboardHistoryEntry[]>("get_clipboard_history")
+      .then(setClipboardHistory)
+      .catch(() => {});
 
     const unlistenPromise = listen<ServerStatus>(
       "nexus://state-updated",
       (event) => {
         setStatus(event.payload);
+        if (!event.payload.connectedDevice) {
+          setIsRingingPhone(false);
+        }
+      }
+    );
+
+    const unlistenClipboardPromise = listen<ClipboardHistoryEntry[]>(
+      "nexus://clipboard-updated",
+      (event) => {
+        setClipboardHistory(event.payload);
       }
     );
 
@@ -104,6 +133,7 @@ function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       unlistenPromise.then((unlisten) => unlisten());
+      unlistenClipboardPromise.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -245,9 +275,20 @@ function App() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button className="h-8 px-3 rounded-md bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] text-[12px] text-zinc-200 flex items-center gap-1.5 transition cursor-pointer">
-                          <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-                          Faire sonner
+                        <button
+                          onClick={handleToggleRingPhone}
+                          className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 transition cursor-pointer ${
+                            isRingingPhone
+                              ? "bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/40 text-amber-200"
+                              : "bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.07] text-zinc-200"
+                          }`}
+                        >
+                          <Volume2
+                            className={`w-3.5 h-3.5 ${
+                              isRingingPhone ? "text-amber-300 animate-pulse" : "text-indigo-400"
+                            }`}
+                          />
+                          {isRingingPhone ? "Arrêter la sonnerie" : "Faire sonner"}
                         </button>
                         <button
                           onClick={() => setActiveSection("input")}
@@ -436,16 +477,52 @@ function App() {
             )}
 
             {activeSection === "files" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
-                <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
-                  <FileUp className="w-4 h-4 text-emerald-400" />
-                  Transfert de fichiers & Presse-papiers
+              <div className="space-y-4 max-w-3xl mx-auto">
+                {/* Presse-papiers partagé */}
+                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
+                      <Clipboard className="w-4 h-4 text-emerald-400" />
+                      Presse-papiers partagé
+                    </div>
+                    <span className="text-[11px] text-zinc-400">
+                      Synchronisation automatique PC ↔ Téléphone
+                    </span>
+                  </div>
+
+                  {clipboardHistory.length > 0 ? (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {clipboardHistory.map((entry, idx) => (
+                        <div
+                          key={`${entry.timestamp}-${idx}`}
+                          className="rounded-lg bg-[#0c0d12] border border-white/[0.06] px-3.5 py-2.5 flex items-start justify-between gap-3"
+                        >
+                          <p className="text-[12px] text-zinc-200 break-all line-clamp-2">
+                            {entry.content}
+                          </p>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-white/[0.05] text-zinc-400 shrink-0">
+                            {entry.source}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[12px] text-zinc-500">
+                      Aucun texte synchronisé pour le moment. Copiez un texte avec Ctrl+C lorsque votre téléphone est connecté.
+                    </p>
+                  )}
                 </div>
-                <p className="text-[12px] text-zinc-400">
-                  Glissez-déposez des photos ou documents ici pour les envoyer
-                  instantanément sur votre téléphone, et retrouvez votre
-                  presse-papiers partagé.
-                </p>
+
+                {/* Zone Transfert de fichiers (Étape 3.3) */}
+                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-2">
+                  <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
+                    <FileUp className="w-4 h-4 text-indigo-400" />
+                    Transfert de fichiers
+                  </div>
+                  <p className="text-[12px] text-zinc-400">
+                    Le glisser-déposer de photos et documents vers votre téléphone sera disponible à l'étape suivante.
+                  </p>
+                </div>
               </div>
             )}
 

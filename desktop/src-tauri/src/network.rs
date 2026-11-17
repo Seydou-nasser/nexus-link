@@ -18,8 +18,9 @@ use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 use crate::protocol::{
-    ConnectedDevice, DeviceStatusPayload, PairedDeviceRecord, PairingQrPayload,
-    PairingRequestPayload, PairingResponsePayload, PendingPairingRequest, ServerStatus, WsEnvelope,
+    ClipboardHistoryEntry, ClipboardSyncPayload, ConnectedDevice, DeviceStatusPayload,
+    PairedDeviceRecord, PairingQrPayload, PairingRequestPayload, PairingResponsePayload,
+    PendingPairingRequest, ServerStatus, WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
@@ -43,6 +44,8 @@ pub struct NetworkState {
     pub pending_approvals: HashMap<String, oneshot::Sender<bool>>,
     pub paired_devices: HashMap<String, PairedDeviceRecord>,
     pub storage_path: Option<PathBuf>,
+    pub last_clipboard_text: Option<String>,
+    pub clipboard_history: Vec<ClipboardHistoryEntry>,
 }
 
 impl NetworkState {
@@ -71,6 +74,8 @@ impl NetworkState {
             pending_approvals: HashMap::new(),
             paired_devices: HashMap::new(),
             storage_path: None,
+            last_clipboard_text: None,
+            clipboard_history: Vec::new(),
         }
     }
 
@@ -98,6 +103,24 @@ impl NetworkState {
         let records: Vec<&PairedDeviceRecord> = self.paired_devices.values().collect();
         if let Ok(json_str) = serde_json::to_string_pretty(&records) {
             let _ = fs::write(path, json_str);
+        }
+    }
+
+    /// Envoie un message JSON enveloppé sur la connexion WebSocket active
+    pub fn send_ws_message(&self, message_type: &str, payload: serde_json::Value) -> bool {
+        let Some(ref tx) = self.active_ws_tx else {
+            return false;
+        };
+        let envelope = WsEnvelope {
+            id: Uuid::new_v4().to_string(),
+            timestamp: current_epoch_millis(),
+            message_type: message_type.to_string(),
+            payload,
+        };
+        if let Ok(json_msg) = serde_json::to_string(&envelope) {
+            tx.send(json_msg).is_ok()
+        } else {
+            false
         }
     }
 
@@ -366,6 +389,17 @@ async fn handle_ws_connection(
                                     }
                                 }
                                 emit_status_update(&state, &app_handle);
+                            }
+                        }
+                        "CLIPBOARD_SYNC" if is_authenticated => {
+                            if let Ok(clip) =
+                                serde_json::from_value::<ClipboardSyncPayload>(envelope.payload)
+                            {
+                                crate::clipboard::apply_remote_clipboard(
+                                    clip.content,
+                                    &state,
+                                    &app_handle,
+                                );
                             }
                         }
                         _ => {}
