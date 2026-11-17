@@ -112,18 +112,18 @@ flowchart LR
 ## Étape 3 — Jalon 2 : Batterie, « Trouver mon téléphone », Presse-papiers et Transfert de fichiers
 
 ### 3.1. État du téléphone en temps réel & fonction « Trouver mon téléphone »
-- [ ] **3.1.1. Côté Android (`service/DeviceStatusMonitor.kt` & `service/RingPhoneController.kt`)** :
+- [x] **3.1.1. Côté Android (`service/DeviceStatusMonitor.kt` & `service/RingPhoneController.kt`)** :
   - Écoute de `ACTION_BATTERY_CHANGED` (`BatteryManager`) et de `RINGER_MODE_CHANGED_ACTION` (`AudioManager`), et envoi automatique du message `DEVICE_STATUS_UPDATE` au PC via WebSocket.
   - Exécution de la commande `FIND_MY_PHONE_COMMAND` reçue du PC : sauvegarde du volume actuel, passage temporaire du flux d'alarme au maximum et déclenchement de la sonnerie par défaut avec boîte de dialogue/notification pour l'arrêter.
-- [ ] **3.1.2. Côté PC (`desktop/src-tauri/src/network.rs` & `lib.rs`)** :
+- [x] **3.1.2. Côté PC (`desktop/src-tauri/src/network.rs` & `lib.rs`)** :
   - Ajout de la commande Tauri `trigger_find_my_phone` qui envoie `FIND_MY_PHONE_COMMAND` (`START_RINGING` / `STOP_RINGING`) au téléphone connecté sur le WebSocket actif.
   - Branchement du bouton « Faire sonner » dans l'interface PC.
 
 ### 3.2. Presse-papiers bidirectionnel (PC ↔ Android)
-- [ ] **3.2.1. Côté PC (`desktop/src-tauri/src/clipboard.rs`)** :
+- [x] **3.2.1. Côté PC (`desktop/src-tauri/src/clipboard.rs`)** :
   - Surveillance des modifications du presse-papiers texte sous Windows et commande Tauri `send_clipboard_to_phone`.
   - Réception du message WebSocket `CLIPBOARD_SYNC` venant d'Android et copie automatique dans le presse-papiers Windows (avec garde anti-boucle infinie par hash du contenu).
-- [ ] **3.2.2. Côté Android (`service/ClipboardSyncManager.kt`)** :
+- [x] **3.2.2. Côté Android (`service/ClipboardSyncManager.kt` & `service/NexusAccessibilityService.kt`)** :
   - Réception de `CLIPBOARD_SYNC` venant du PC et écriture immédiate dans le `ClipboardManager` d'Android.
   - Action rapide dans la notification persistante (« Envoyer le presse-papiers au PC ») et activité transparente de partage texte pour envoyer le presse-papiers du téléphone vers le PC malgré les restrictions d'arrière-plan d'Android 10+.
 
