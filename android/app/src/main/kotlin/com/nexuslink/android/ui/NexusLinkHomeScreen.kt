@@ -42,9 +42,11 @@ fun NexusLinkHomeScreen(
     connectionState: ConnectionState,
     discoveredHosts: List<DiscoveredDesktopHost>,
     isDiscovering: Boolean,
+    isAccessibilityEnabled: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
     onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -98,7 +100,55 @@ fun NexusLinkHomeScreen(
                 }
             }
 
-            // 2. Association par QR Code ou sélection directe (uniquement si non connecté)
+            // 2. Presse-papiers automatique en arrière-plan (lorsque connecté)
+            if (connectionState is ConnectionState.Connected) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Presse-papiers automatique",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (isAccessibilityEnabled) "Actif" else "Inactif",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isAccessibilityEnabled) Color(0xFF10B981) else MaterialTheme.colorScheme.error
+                            )
+                        }
+                        Text(
+                            text = if (isAccessibilityEnabled) {
+                                "Tout ce que vous copiez sur le téléphone ou le PC est synchronisé automatiquement."
+                            } else {
+                                "Activez l’accessibilité NexusLink pour que ce que vous copiez depuis n’importe quelle application soit envoyé automatiquement au PC."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!isAccessibilityEnabled) {
+                            Button(
+                                onClick = onOpenAccessibilitySettings,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Activer la synchronisation automatique")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Association par QR Code ou sélection directe (uniquement si non connecté)
             if (connectionState !is ConnectionState.Connected &&
                 connectionState !is ConnectionState.WaitingApproval
             ) {

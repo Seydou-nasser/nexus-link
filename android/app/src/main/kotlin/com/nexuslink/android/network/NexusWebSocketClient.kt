@@ -4,8 +4,10 @@ import android.os.Build
 import android.util.Log
 import com.nexuslink.android.data.PairingStore
 import com.nexuslink.android.data.SavedDesktopPeer
+import com.nexuslink.android.protocol.ClipboardSyncPayload
 import com.nexuslink.android.protocol.DeviceStatusPayload
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
+import com.nexuslink.android.protocol.FindMyPhonePayload
 import com.nexuslink.android.protocol.PairingRequestPayload
 import com.nexuslink.android.protocol.PairingResponsePayload
 import com.nexuslink.android.protocol.WsEnvelope
@@ -44,7 +46,9 @@ sealed class ConnectionState {
  */
 class NexusWebSocketClient(
     private val pairingStore: PairingStore,
-    private val statusProvider: () -> DeviceStatusPayload
+    private val statusProvider: () -> DeviceStatusPayload,
+    private val onFindMyPhoneCommand: (String) -> Unit = {},
+    private val onClipboardReceived: (String) -> Unit = {}
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -110,6 +114,11 @@ class NexusWebSocketClient(
 
     fun sendDeviceStatus(status: DeviceStatusPayload): Boolean {
         return sendEnvelope("DEVICE_STATUS_UPDATE", json.encodeToJsonElement(status))
+    }
+
+    fun sendClipboard(content: String): Boolean {
+        val payload = ClipboardSyncPayload(mimeType = "text/plain", content = content)
+        return sendEnvelope("CLIPBOARD_SYNC", json.encodeToJsonElement(payload))
     }
 
     private fun openSocket(peer: SavedDesktopPeer, manualVerificationCode: String?) {
@@ -226,6 +235,24 @@ class NexusWebSocketClient(
                 _connectionState.value = ConnectionState.Disconnected
                 webSocket?.close(1000, "Déconnecté depuis l'ordinateur")
                 webSocket = null
+            }
+            "FIND_MY_PHONE_COMMAND" -> {
+                val cmd = try {
+                    json.decodeFromJsonElement<FindMyPhonePayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder FIND_MY_PHONE_COMMAND", e)
+                    return
+                }
+                onFindMyPhoneCommand(cmd.action)
+            }
+            "CLIPBOARD_SYNC" -> {
+                val clip = try {
+                    json.decodeFromJsonElement<ClipboardSyncPayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder CLIPBOARD_SYNC", e)
+                    return
+                }
+                onClipboardReceived(clip.content)
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")

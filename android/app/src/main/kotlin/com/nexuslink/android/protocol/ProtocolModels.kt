@@ -69,6 +69,23 @@ data class DeviceStatusPayload(
 )
 
 /**
+ * Commande reçue du PC pour faire sonner ou arrêter la sonnerie du téléphone
+ */
+@Serializable
+data class FindMyPhonePayload(
+    val action: String
+)
+
+/**
+ * Charge utile de synchronisation du presse-papiers texte (PC <-> Android)
+ */
+@Serializable
+data class ClipboardSyncPayload(
+    val mimeType: String = "text/plain",
+    val content: String
+)
+
+/**
  * Représente un PC découvert sur le réseau local via mDNS (_nexuslink._tcp.)
  */
 data class DiscoveredDesktopHost(

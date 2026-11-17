@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">NexusLink</string>
+    <string name="accessibility_service_description">Permet à NexusLink de synchroniser automatiquement le presse-papiers en arrière-plan et de contrôler l’écran à distance.</string>
 </resources>

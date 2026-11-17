@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,7 @@ import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingQrPayload
 import com.nexuslink.android.service.ConnectionForegroundService
+import com.nexuslink.android.service.NexusAccessibilityService
 import com.nexuslink.android.ui.NexusLinkHomeScreen
 import com.nexuslink.android.ui.QrScannerView
 import com.nexuslink.android.ui.theme.NexusLinkTheme
@@ -39,6 +41,7 @@ class MainActivity : ComponentActivity() {
     private var connectionService: ConnectionForegroundService? by mutableStateOf(null)
     private var isBound = false
     private var showQrScanner by mutableStateOf(false)
+    private var isAccessibilityEnabled by mutableStateOf(false)
     private var uiErrorMessage: String? by mutableStateOf(null)
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -104,11 +107,15 @@ class MainActivity : ComponentActivity() {
                             connectionState = connectionState,
                             discoveredHosts = discoveredHosts,
                             isDiscovering = isDiscovering,
+                            isAccessibilityEnabled = isAccessibilityEnabled,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
                             onSelectDiscoveredHost = { host ->
                                 uiErrorMessage = null
                                 connectionService?.pairWithDiscoveredHost(host)
+                            },
+                            onOpenAccessibilitySettings = {
+                                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                             },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
@@ -119,6 +126,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isAccessibilityEnabled = NexusAccessibilityService.isServiceEnabled(this)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            connectionService?.syncLocalClipboardToPc()
         }
     }
 

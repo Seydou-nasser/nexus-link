@@ -5,14 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.media.AudioManager
-import android.os.BatteryManager
 import android.os.Binder
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
@@ -20,7 +15,6 @@ import com.nexuslink.android.data.PairingStore
 import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.network.NexusWebSocketClient
 import com.nexuslink.android.network.NsdDiscoveryManager
-import com.nexuslink.android.protocol.DeviceStatusPayload
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingQrPayload
 import kotlinx.coroutines.CoroutineScope
@@ -28,10 +22,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
- * Service persistant de premier plan maintenant la découverte mDNS et la connexion WebSocket actives.
+ * Service persistant de premier plan maintenant la découverte mDNS, la connexion WebSocket,
+ * la surveillance batterie/statut et la sonnerie à distance actives.
  */
 class ConnectionForegroundService : Service() {
 
@@ -44,6 +40,9 @@ class ConnectionForegroundService : Service() {
 
     private lateinit var pairingStore: PairingStore
     private lateinit var nsdDiscoveryManager: NsdDiscoveryManager
+    private lateinit var deviceStatusMonitor: DeviceStatusMonitor
+    private lateinit var ringPhoneController: RingPhoneController
+    private lateinit var clipboardSyncManager: ClipboardSyncManager
     private lateinit var webSocketClient: NexusWebSocketClient
 
     val connectionState: StateFlow<ConnectionState>
@@ -55,42 +54,75 @@ class ConnectionForegroundService : Service() {
     val isDiscovering: StateFlow<Boolean>
         get() = nsdDiscoveryManager.isDiscovering
 
+    val isRinging: StateFlow<Boolean>
+        get() = ringPhoneController.isRinging
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
 
+        activeInstance = java.lang.ref.WeakReference(this)
         pairingStore = PairingStore(this)
         nsdDiscoveryManager = NsdDiscoveryManager(this)
+        ringPhoneController = RingPhoneController(this)
+        clipboardSyncManager = ClipboardSyncManager(this) { content ->
+            webSocketClient.sendClipboard(content)
+        }
+        deviceStatusMonitor = DeviceStatusMonitor(this) { status ->
+            webSocketClient.sendDeviceStatus(status)
+        }
         webSocketClient = NexusWebSocketClient(
             pairingStore = pairingStore,
-            statusProvider = { readCurrentDeviceStatus() }
+            statusProvider = { deviceStatusMonitor.readCurrentStatus() },
+            onFindMyPhoneCommand = { action ->
+                when (action) {
+                    "START_RINGING" -> ringPhoneController.startRinging()
+                    "STOP_RINGING" -> ringPhoneController.stopRinging()
+                }
+            },
+            onClipboardReceived = { content ->
+                clipboardSyncManager.applyRemoteClipboard(content)
+            }
         )
 
-        startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…"))
+        startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…", false))
 
         serviceScope.launch {
-            webSocketClient.connectionState.collect { state ->
-                val statusText = when (state) {
-                    is ConnectionState.Connected -> "Connecté à ${state.pcName}"
-                    is ConnectionState.WaitingApproval -> "Confirmation requise sur ${state.pcName}…"
-                    is ConnectionState.Connecting -> "Connexion à ${state.targetHost}…"
-                    is ConnectionState.Error -> "Connexion interrompue"
-                    ConnectionState.Disconnected -> "En attente de liaison locale"
+            combine(
+                webSocketClient.connectionState,
+                ringPhoneController.isRinging
+            ) { state, ringing ->
+                val statusText = when {
+                    ringing -> "Sonnerie en cours (« Trouver mon téléphone »)"
+                    state is ConnectionState.Connected -> "Connecté à ${state.pcName}"
+                    state is ConnectionState.WaitingApproval -> "Confirmation requise sur ${state.pcName}…"
+                    state is ConnectionState.Connecting -> "Connexion à ${state.targetHost}…"
+                    state is ConnectionState.Error -> "Connexion interrompue"
+                    else -> "En attente de liaison locale"
                 }
-                updateNotification(statusText)
+                statusText to ringing
+            }.collect { (text, ringing) ->
+                updateNotification(text, ringing)
             }
         }
 
+        deviceStatusMonitor.start()
         nsdDiscoveryManager.startDiscovery()
         webSocketClient.connectToSavedPeer()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP_SERVICE) {
-            webSocketClient.disconnect(disableReconnect = true)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP_SERVICE -> {
+                ringPhoneController.stopRinging()
+                webSocketClient.disconnect(disableReconnect = true)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_RINGING -> {
+                ringPhoneController.stopRinging()
+            }
         }
         return START_STICKY
     }
@@ -98,6 +130,9 @@ class ConnectionForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        activeInstance = null
+        ringPhoneController.stopRinging()
+        deviceStatusMonitor.stop()
         nsdDiscoveryManager.stopDiscovery()
         webSocketClient.disconnect(disableReconnect = true)
         serviceScope.cancel()
@@ -115,6 +150,7 @@ class ConnectionForegroundService : Service() {
     }
 
     fun disconnectAndForgetPeer() {
+        ringPhoneController.stopRinging()
         webSocketClient.disconnect(disableReconnect = true)
         pairingStore.clearSavedPeer()
     }
@@ -124,32 +160,14 @@ class ConnectionForegroundService : Service() {
         nsdDiscoveryManager.startDiscovery()
     }
 
-    private fun readCurrentDeviceStatus(): DeviceStatusPayload {
-        val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
-        val batteryPct = if (level >= 0 && scale > 0) (level * 100) / scale else 100
+    fun stopRinging() {
+        ringPhoneController.stopRinging()
+    }
 
-        val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_SILENT -> "SILENT"
-            AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
-            else -> "NORMAL"
+    fun syncLocalClipboardToPc(focusedContext: android.content.Context = this) {
+        if (connectionState.value is ConnectionState.Connected) {
+            clipboardSyncManager.syncLocalClipboardToPc(focusedContext)
         }
-
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val screenAwake = powerManager.isInteractive
-
-        return DeviceStatusPayload(
-            batteryLevel = batteryPct,
-            isCharging = isCharging,
-            ringerMode = ringerMode,
-            screenAwake = screenAwake
-        )
     }
 
     private fun createNotificationChannel() {
@@ -165,7 +183,7 @@ class ConnectionForegroundService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(contentText: String): Notification {
+    private fun buildNotification(contentText: String, isRinging: Boolean): Notification {
         val openAppIntent = PendingIntent.getActivity(
             this,
             0,
@@ -182,24 +200,50 @@ class ConnectionForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("NexusLink")
             .setContentText(contentText)
             .setOngoing(true)
             .setContentIntent(openAppIntent)
+
+        if (isRinging) {
+            val stopRingIntent = PendingIntent.getService(
+                this,
+                2,
+                Intent(this, ConnectionForegroundService::class.java).apply {
+                    action = ACTION_STOP_RINGING
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(0, "Couper la sonnerie", stopRingIntent)
+        }
+
+        return builder
             .addAction(0, "Arrêter", stopIntent)
             .build()
     }
 
-    private fun updateNotification(contentText: String) {
+    private fun updateNotification(contentText: String, isRinging: Boolean) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(contentText))
+        manager.notify(NOTIFICATION_ID, buildNotification(contentText, isRinging))
     }
 
     companion object {
         private const val CHANNEL_ID = "nexuslink_connection_channel"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STOP_SERVICE = "com.nexuslink.android.ACTION_STOP_SERVICE"
+        const val ACTION_STOP_RINGING = "com.nexuslink.android.ACTION_STOP_RINGING"
+
+        @Volatile
+        private var activeInstance: java.lang.ref.WeakReference<ConnectionForegroundService>? = null
+
+        fun isConnected(): Boolean {
+            return activeInstance?.get()?.connectionState?.value is ConnectionState.Connected
+        }
+
+        fun syncClipboardFromAccessibility(focusedContext: android.content.Context) {
+            activeInstance?.get()?.syncLocalClipboardToPc(focusedContext)
+        }
     }
 }
