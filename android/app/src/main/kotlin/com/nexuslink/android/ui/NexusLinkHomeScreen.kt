@@ -26,8 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 
@@ -42,6 +44,7 @@ fun NexusLinkHomeScreen(
     isDiscovering: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
+    onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -95,8 +98,10 @@ fun NexusLinkHomeScreen(
                 }
             }
 
-            // 2. Association par QR Code (uniquement si non connecté)
-            if (connectionState !is ConnectionState.Connected) {
+            // 2. Association par QR Code ou sélection directe (uniquement si non connecté)
+            if (connectionState !is ConnectionState.Connected &&
+                connectionState !is ConnectionState.WaitingApproval
+            ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
@@ -111,7 +116,7 @@ fun NexusLinkHomeScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Ouvrez NexusLink sur votre ordinateur puis scannez le QR Code affiché à l'écran.",
+                            text = "Scannez le QR Code affiché sur votre ordinateur, ou sélectionnez-le dans la liste ci-dessous.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -125,7 +130,7 @@ fun NexusLinkHomeScreen(
                     }
                 }
 
-                // 3. Ordinateurs détectés sur le même réseau Wi-Fi
+                // 3. Ordinateurs détectés sur le même réseau Wi-Fi (cliquables)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
@@ -165,26 +170,35 @@ fun NexusLinkHomeScreen(
                         } else {
                             discoveredHosts.forEach { host ->
                                 Surface(
+                                    onClick = { onSelectDiscoveredHost(host) },
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
+                                            .padding(14.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Column {
+                                            Text(
+                                                text = host.deviceName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = "Appuyez pour demander la connexion",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         Text(
-                                            text = host.deviceName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = "Disponible",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFF10B981)
+                                            text = "Connecter",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -210,9 +224,14 @@ private fun ConnectionStatusCard(
             "Votre téléphone et votre ordinateur sont reliés",
             Color(0xFF10B981)
         )
+        is ConnectionState.WaitingApproval -> Triple(
+            "Confirmez sur ${connectionState.pcName}",
+            "Vérifiez que ce code correspond à celui affiché sur votre ordinateur :",
+            Color(0xFF6366F1)
+        )
         is ConnectionState.Connecting -> Triple(
             "Connexion en cours…",
-            "Établissement de la liaison avec votre ordinateur",
+            "Établissement de la liaison avec ${connectionState.targetHost}",
             Color(0xFF6366F1)
         )
         is ConnectionState.Error -> Triple(
@@ -250,7 +269,30 @@ private fun ConnectionStatusCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (connectionState is ConnectionState.Connected || connectionState is ConnectionState.Connecting) {
+            if (connectionState is ConnectionState.WaitingApproval) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Text(
+                        text = connectionState.verificationCode,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 28.sp,
+                        letterSpacing = 6.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 16.dp)
+                    )
+                }
+            }
+
+            if (connectionState is ConnectionState.Connected ||
+                connectionState is ConnectionState.Connecting ||
+                connectionState is ConnectionState.WaitingApproval
+            ) {
                 Button(
                     onClick = onDisconnect,
                     colors = ButtonDefaults.buttonColors(
@@ -258,7 +300,12 @@ private fun ConnectionStatusCard(
                         contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) {
-                    Text("Déconnecter cet ordinateur")
+                    Text(
+                        if (connectionState is ConnectionState.Connected)
+                            "Déconnecter cet ordinateur"
+                        else
+                            "Annuler"
+                    )
                 }
             }
         }

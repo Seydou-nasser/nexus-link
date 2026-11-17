@@ -3,6 +3,7 @@ package com.nexuslink.android.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingQrPayload
 import java.util.UUID
 
@@ -16,7 +17,7 @@ data class SavedDesktopPeer(
     val wsPort: Int,
     val udpPort: Int,
     val httpPort: Int,
-    val pairingToken: String,
+    val pairingToken: String?,
     val sessionSecret: String?
 )
 
@@ -76,6 +77,22 @@ class PairingStore(context: Context) {
     }
 
     /**
+     * Enregistre un PC sélectionné dans la liste locale (appairage manuel sans QR Code)
+     */
+    fun saveManualPeer(host: DiscoveredDesktopHost) {
+        prefs.edit()
+            .putString(KEY_PC_DEVICE_ID, host.serviceName)
+            .putString(KEY_PC_DEVICE_NAME, host.deviceName)
+            .putString(KEY_PC_HOST_ADDRESS, host.hostAddress)
+            .putInt(KEY_PC_WS_PORT, host.wsPort)
+            .putInt(KEY_PC_UDP_PORT, host.udpPort)
+            .putInt(KEY_PC_HTTP_PORT, 52842)
+            .remove(KEY_PAIRING_TOKEN)
+            .remove(KEY_SESSION_SECRET)
+            .apply()
+    }
+
+    /**
      * Met à jour le secret de session reçu après acceptation de l'appairage par le PC
      */
     fun updateSessionSecret(pcName: String, sessionSecret: String) {
@@ -90,7 +107,9 @@ class PairingStore(context: Context) {
      */
     fun getSavedDesktopPeer(): SavedDesktopPeer? {
         val hostAddress = prefs.getString(KEY_PC_HOST_ADDRESS, null) ?: return null
-        val pairingToken = prefs.getString(KEY_PAIRING_TOKEN, null) ?: return null
+        val pairingToken = prefs.getString(KEY_PAIRING_TOKEN, null)
+        val sessionSecret = prefs.getString(KEY_SESSION_SECRET, null)
+        if (pairingToken == null && sessionSecret == null) return null
 
         return SavedDesktopPeer(
             deviceId = prefs.getString(KEY_PC_DEVICE_ID, "") ?: "",
@@ -100,7 +119,7 @@ class PairingStore(context: Context) {
             udpPort = prefs.getInt(KEY_PC_UDP_PORT, 52841),
             httpPort = prefs.getInt(KEY_PC_HTTP_PORT, 52842),
             pairingToken = pairingToken,
-            sessionSecret = prefs.getString(KEY_SESSION_SECRET, null)
+            sessionSecret = sessionSecret
         )
     }
 

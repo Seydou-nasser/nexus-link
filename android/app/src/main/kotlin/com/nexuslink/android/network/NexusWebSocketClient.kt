@@ -5,6 +5,7 @@ import android.util.Log
 import com.nexuslink.android.data.PairingStore
 import com.nexuslink.android.data.SavedDesktopPeer
 import com.nexuslink.android.protocol.DeviceStatusPayload
+import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingRequestPayload
 import com.nexuslink.android.protocol.PairingResponsePayload
 import com.nexuslink.android.protocol.WsEnvelope
@@ -28,16 +29,18 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
     data class Connecting(val targetHost: String) : ConnectionState()
+    data class WaitingApproval(val pcName: String, val verificationCode: String) : ConnectionState()
     data class Connected(val pcName: String, val hostAddress: String) : ConnectionState()
     data class Error(val message: String) : ConnectionState()
 }
 
 /**
- * Client WebSocket OkHttp gérant l'appairage, l'authentification et la reconnexion automatique.
+ * Client WebSocket OkHttp gérant l'appairage (QR, Manuel avec code 6 chiffres, Reconnexion) et la reconnexion automatique.
  */
 class NexusWebSocketClient(
     private val pairingStore: PairingStore,
@@ -73,7 +76,26 @@ class NexusWebSocketClient(
         shouldAutoReconnect = true
         currentPeer = peer
         reconnectJob?.cancel()
-        openSocket(peer)
+        openSocket(peer, manualVerificationCode = null)
+    }
+
+    fun connectManual(host: DiscoveredDesktopHost) {
+        pairingStore.saveManualPeer(host)
+        val peer = SavedDesktopPeer(
+            deviceId = host.serviceName,
+            deviceName = host.deviceName,
+            hostAddress = host.hostAddress,
+            wsPort = host.wsPort,
+            udpPort = host.udpPort,
+            httpPort = 52842,
+            pairingToken = null,
+            sessionSecret = null
+        )
+        shouldAutoReconnect = false
+        currentPeer = peer
+        reconnectJob?.cancel()
+        val code = Random.nextInt(100_000, 1_000_000).toString()
+        openSocket(peer, manualVerificationCode = code)
     }
 
     fun disconnect(disableReconnect: Boolean = true) {
@@ -90,9 +112,9 @@ class NexusWebSocketClient(
         return sendEnvelope("DEVICE_STATUS_UPDATE", json.encodeToJsonElement(status))
     }
 
-    private fun openSocket(peer: SavedDesktopPeer) {
+    private fun openSocket(peer: SavedDesktopPeer, manualVerificationCode: String?) {
         webSocket?.cancel()
-        _connectionState.value = ConnectionState.Connecting(peer.hostAddress)
+        _connectionState.value = ConnectionState.Connecting(peer.deviceName)
 
         val url = "ws://${peer.hostAddress}:${peer.wsPort}/ws"
         val request = Request.Builder().url(url).build()
@@ -100,8 +122,25 @@ class NexusWebSocketClient(
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 Log.d(TAG, "WebSocket ouvert vers $url, envoi de PAIRING_REQUEST")
+
+                val mode = when {
+                    !peer.sessionSecret.isNullOrBlank() -> "RECONNECT"
+                    !peer.pairingToken.isNullOrBlank() -> "QR"
+                    else -> "MANUAL"
+                }
+
+                if (mode == "MANUAL" && manualVerificationCode != null) {
+                    _connectionState.value = ConnectionState.WaitingApproval(
+                        pcName = peer.deviceName,
+                        verificationCode = manualVerificationCode
+                    )
+                }
+
                 val pairingReq = PairingRequestPayload(
+                    mode = mode,
                     pairingToken = peer.pairingToken,
+                    sessionSecret = peer.sessionSecret,
+                    verificationCode = manualVerificationCode,
                     deviceId = pairingStore.getOrCreateAndroidDeviceId(),
                     deviceName = pairingStore.getAndroidDeviceName(),
                     model = Build.MODEL ?: "Android",
@@ -132,7 +171,7 @@ class NexusWebSocketClient(
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "Erreur WebSocket : ${t.message}", t)
                 _connectionState.value = ConnectionState.Error(
-                    t.localizedMessage ?: "Connexion impossible vers ${peer.hostAddress}"
+                    t.localizedMessage ?: "Connexion impossible vers ${peer.deviceName}"
                 )
                 scheduleReconnect(peer)
             }
@@ -158,19 +197,35 @@ class NexusWebSocketClient(
 
                 if (resp.accepted) {
                     pairingStore.updateSessionSecret(resp.pcName, resp.sessionSecret)
+                    currentPeer = peer.copy(
+                        deviceName = resp.pcName,
+                        sessionSecret = resp.sessionSecret
+                    )
+                    shouldAutoReconnect = true
                     _connectionState.value = ConnectionState.Connected(
                         pcName = resp.pcName,
                         hostAddress = peer.hostAddress
                     )
-                    // Envoie immédiatement l'état initial (batterie / charge) au PC
                     sendDeviceStatus(statusProvider())
                 } else {
                     shouldAutoReconnect = false
+                    pairingStore.clearSavedPeer()
                     _connectionState.value = ConnectionState.Error(
-                        resp.errorMessage ?: "Appairage refusé par le PC"
+                        resp.errorMessage ?: "Demande refusée par l'ordinateur"
                     )
-                    disconnect(disableReconnect = true)
+                    webSocket?.close(1000, "Refusé")
+                    webSocket = null
                 }
+            }
+            "PEER_UNPAIRED" -> {
+                Log.d(TAG, "Déconnexion demandée par le PC (PEER_UNPAIRED)")
+                shouldAutoReconnect = false
+                reconnectJob?.cancel()
+                pairingStore.clearSavedPeer()
+                currentPeer = null
+                _connectionState.value = ConnectionState.Disconnected
+                webSocket?.close(1000, "Déconnecté depuis l'ordinateur")
+                webSocket = null
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")
@@ -187,12 +242,13 @@ class NexusWebSocketClient(
 
     private fun scheduleReconnect(peer: SavedDesktopPeer) {
         if (!shouldAutoReconnect) return
+        val latestPeer = pairingStore.getSavedDesktopPeer() ?: peer
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(RECONNECT_DELAY_MS)
-            if (shouldAutoReconnect && currentPeer?.hostAddress == peer.hostAddress) {
-                Log.d(TAG, "Tentative de reconnexion automatique vers ${peer.hostAddress}...")
-                openSocket(peer)
+            if (shouldAutoReconnect && currentPeer?.hostAddress == latestPeer.hostAddress) {
+                Log.d(TAG, "Tentative de reconnexion automatique vers ${latestPeer.deviceName}...")
+                openSocket(latestPeer, manualVerificationCode = null)
             }
         }
     }

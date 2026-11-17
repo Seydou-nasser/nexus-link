@@ -32,11 +32,14 @@ data class WsEnvelope(
 )
 
 /**
- * Charge utile envoyée par Android au PC lors de la demande d'appairage initial
+ * Charge utile envoyée par Android au PC lors de la demande d'appairage (QR, MANUEL ou RECONNECT)
  */
 @Serializable
 data class PairingRequestPayload(
-    val pairingToken: String,
+    val mode: String = "QR",
+    val pairingToken: String? = null,
+    val sessionSecret: String? = null,
+    val verificationCode: String? = null,
     val deviceId: String,
     val deviceName: String,
     val model: String,

@@ -106,6 +106,10 @@ class MainActivity : ComponentActivity() {
                             isDiscovering = isDiscovering,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
+                            onSelectDiscoveredHost = { host ->
+                                uiErrorMessage = null
+                                connectionService?.pairWithDiscoveredHost(host)
+                            },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
                                 uiErrorMessage = null

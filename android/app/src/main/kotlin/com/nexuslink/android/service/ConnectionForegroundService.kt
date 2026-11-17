@@ -71,9 +71,10 @@ class ConnectionForegroundService : Service() {
         serviceScope.launch {
             webSocketClient.connectionState.collect { state ->
                 val statusText = when (state) {
-                    is ConnectionState.Connected -> "Connecté à ${state.pcName} (${state.hostAddress})"
+                    is ConnectionState.Connected -> "Connecté à ${state.pcName}"
+                    is ConnectionState.WaitingApproval -> "Confirmation requise sur ${state.pcName}…"
                     is ConnectionState.Connecting -> "Connexion à ${state.targetHost}…"
-                    is ConnectionState.Error -> "Erreur : ${state.message}"
+                    is ConnectionState.Error -> "Connexion interrompue"
                     ConnectionState.Disconnected -> "En attente de liaison locale"
                 }
                 updateNotification(statusText)
@@ -107,6 +108,10 @@ class ConnectionForegroundService : Service() {
         pairingStore.savePairingQrPayload(qrPayload, preferredAddress)
         val savedPeer = pairingStore.getSavedDesktopPeer() ?: return
         webSocketClient.connect(savedPeer)
+    }
+
+    fun pairWithDiscoveredHost(host: DiscoveredDesktopHost) {
+        webSocketClient.connectManual(host)
     }
 
     fun disconnectAndForgetPeer() {
