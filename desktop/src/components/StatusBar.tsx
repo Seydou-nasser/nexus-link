@@ -34,13 +34,14 @@ export function StatusBar({ status }: StatusBarProps) {
           <span>Connexion locale privée</span>
         </span>
 
-        <span className="text-zinc-700">|</span>
-
-        <span className="text-zinc-500">
-          {status.connectedDevice
-            ? `Relié à ${status.connectedDevice.deviceName}`
-            : "En attente"}
-        </span>
+        {status.connectedDevice && (
+          <>
+            <span className="text-zinc-700">|</span>
+            <span className="text-zinc-400">
+              Relié à {status.connectedDevice.deviceName}
+            </span>
+          </>
+        )}
       </div>
     </footer>
   );

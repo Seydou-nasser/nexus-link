@@ -47,20 +47,14 @@ export function TitleBar({ status, onOpenCommandPalette }: TitleBarProps) {
         <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.04] text-zinc-400 border border-white/[0.06]">
           {status.deviceName}
         </span>
-        <div className="flex items-center gap-1.5 ml-1 pl-2.5 border-l border-white/[0.06]">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              isConnected
-                ? "bg-emerald-400 shadow-[0_0_8px_#10b981]"
-                : "bg-zinc-500"
-            }`}
-          />
-          <span className="text-[12px] text-zinc-400">
-            {isConnected
-              ? status.connectedDevice?.deviceName
-              : "En attente du téléphone"}
-          </span>
-        </div>
+        {isConnected && (
+          <div className="flex items-center gap-1.5 ml-1 pl-2.5 border-l border-white/[0.06]">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981]" />
+            <span className="text-[12px] text-zinc-300">
+              {status.connectedDevice?.deviceName}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Barre de commande rapide centrale */}

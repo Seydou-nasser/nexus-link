@@ -111,9 +111,9 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Dock inférieur : État du smartphone */}
-      <div className="p-2.5 border-t border-white/[0.065] bg-[#0b0c10]/80">
-        {connectedDevice ? (
+      {/* Dock inférieur : État du smartphone (affiché uniquement si connecté) */}
+      {connectedDevice && (
+        <div className="p-2.5 border-t border-white/[0.065] bg-[#0b0c10]/80">
           <div className="rounded-lg bg-[#14161d] border border-white/[0.07] p-2.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
@@ -148,15 +148,8 @@ export function Sidebar({
               </span>
             </div>
           </div>
-        ) : (
-          <div className="rounded-lg bg-[#12141a] border border-white/[0.06] p-2.5">
-            <div className="flex items-center justify-between text-[12px]">
-              <span className="text-zinc-400">En attente d'un téléphone</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80" />
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 }
