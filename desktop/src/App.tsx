@@ -4,11 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import {
   ArrowLeftRight,
   Bell,
-  Check,
   Clipboard,
-  Copy,
   FileUp,
-  KeyRound,
   Monitor,
   MonitorPlay,
   MousePointerClick,
@@ -16,7 +13,6 @@ import {
   RefreshCw,
   Smartphone,
   Sparkles,
-  Terminal,
   Volume2,
 } from "lucide-react";
 import { Sidebar, type NavSectionId } from "./components/Sidebar";
@@ -30,11 +26,9 @@ type ScreenEdge = "LEFT" | "RIGHT" | "BOTTOM";
 function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [activeSection, setActiveSection] = useState<NavSectionId>("overview");
-  const [inspectorOpen, setInspectorOpen] = useState<boolean>(true);
   const [selectedEdge, setSelectedEdge] = useState<ScreenEdge>("RIGHT");
   const [edgeResistanceMs, setEdgeResistanceMs] = useState<number>(120);
   const [requireCtrlKey, setRequireCtrlKey] = useState<boolean>(false);
-  const [copiedToken, setCopiedToken] = useState<boolean>(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
 
   const fetchServerStatus = async () => {
@@ -51,16 +45,7 @@ function App() {
       const updated = await invoke<ServerStatus>("regenerate_pairing_token");
       setStatus(updated);
     } catch (error) {
-      console.error("Impossible de régénérer le jeton :", error);
-    }
-  };
-
-  const handleSimulateDevice = async () => {
-    try {
-      const updated = await invoke<ServerStatus>("simulate_device_connection");
-      setStatus(updated);
-    } catch (error) {
-      console.error("Erreur lors de la simulation :", error);
+      console.error("Impossible de régénérer le QR Code :", error);
     }
   };
 
@@ -71,13 +56,6 @@ function App() {
     } catch (error) {
       console.error("Erreur lors de la déconnexion :", error);
     }
-  };
-
-  const handleCopyPairingJson = async () => {
-    if (!status) return;
-    await navigator.clipboard.writeText(status.qrRawJson);
-    setCopiedToken(true);
-    setTimeout(() => setCopiedToken(false), 1800);
   };
 
   useEffect(() => {
@@ -122,7 +100,7 @@ function App() {
       <div className="h-screen w-screen flex items-center justify-center bg-[#0c0d10] text-zinc-400 text-[12px]">
         <div className="flex items-center gap-2.5">
           <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-          <span>Initialisation du moteur système NexusLink…</span>
+          <span>Démarrage de NexusLink…</span>
         </div>
       </div>
     );
@@ -132,158 +110,105 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#0c0d10]/90 text-zinc-100 overflow-hidden">
-      {/* 1. Barre de titre intégrée (Frameless Desktop) */}
+      {/* 1. Barre de titre intégrée */}
       <TitleBar
         status={status}
-        inspectorOpen={inspectorOpen}
-        onToggleInspector={() => setInspectorOpen((prev) => !prev)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
-      {/* 2. Corps de l'application : Sidebar + Zone centrale + Inspecteur */}
+      {/* 2. Corps de l'application : Sidebar + Zone centrale */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <Sidebar
           activeSection={activeSection}
           onSelectSection={setActiveSection}
           connectedDevice={connectedDevice}
-          onSimulateDevice={handleSimulateDevice}
           onDisconnectDevice={handleDisconnectDevice}
         />
 
         {/* Zone de travail principale */}
         <main className="flex-1 flex flex-col min-w-0 bg-[#0c0d10]/60">
-          {/* Barre d'outils contextuelle supérieure du panneau */}
+          {/* Barre d'outils supérieure */}
           <div className="h-10 px-5 border-b border-white/[0.065] flex items-center justify-between shrink-0 bg-[#101217]/60">
-            <div className="flex items-center gap-2 text-[12px]">
-              <span className="text-zinc-400">Poste de travail</span>
+            <div className="flex items-center gap-2 text-[13px]">
+              <span className="text-zinc-400">NexusLink</span>
               <span className="text-zinc-600">/</span>
               <span className="font-medium text-zinc-100">
-                {activeSection === "overview" && "Liaison & Appareil"}
-                {activeSection === "input" &&
-                  "Passage Souris & Clavier inter-écrans"}
-                {activeSection === "notifications" &&
-                  "Flux de notifications Android"}
-                {activeSection === "files" &&
-                  "Transfert direct & Presse-papiers"}
-                {activeSection === "mirror" &&
-                  "Recopie d'écran faible latence"}
+                {activeSection === "overview" && "Mon téléphone"}
+                {activeSection === "input" && "Souris & Clavier"}
+                {activeSection === "notifications" && "Notifications"}
+                {activeSection === "files" && "Fichiers & Presse-papiers"}
+                {activeSection === "mirror" && "Écran du téléphone"}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            {!connectedDevice && (
               <button
                 onClick={handleRegenerateToken}
-                className="h-7 px-2.5 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center gap-1.5 text-[11px] text-zinc-300 transition cursor-pointer"
+                className="h-7 px-3 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center gap-1.5 text-[12px] text-zinc-300 transition cursor-pointer"
               >
-                <RefreshCw className="w-3 h-3 text-zinc-400" />
-                Nouvelle clé de session
+                <RefreshCw className="w-3.5 h-3.5 text-zinc-400" />
+                Actualiser le QR Code
               </button>
-            </div>
+            )}
           </div>
 
           {/* Contenu du panneau actif */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto p-6">
             {activeSection === "overview" && (
-              <div className="space-y-5 max-w-4xl">
+              <div className="space-y-5 max-w-3xl mx-auto">
                 {!connectedDevice ? (
-                  /* Panneau d'appairage style matériel Linear / Raycast */
                   <div className="rounded-xl bg-[#111319] border border-white/[0.07] overflow-hidden">
                     <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between bg-[#14171f]/60">
                       <div className="flex items-center gap-2">
                         <QrCode className="w-4 h-4 text-indigo-400" />
-                        <span className="text-[12px] font-medium text-zinc-100">
-                          Appairage cryptographique local (QR / mDNS)
+                        <span className="text-[13px] font-medium text-zinc-100">
+                          Associer votre téléphone Android
                         </span>
                       </div>
-                      <span className="text-[11px] font-mono-tabular text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                        Prêt sur le port {status.wsPort}
+                      <span className="text-[12px] text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20">
+                        Prêt pour l'association
                       </span>
                     </div>
 
-                    <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-                      {/* Cadre QR haute précision */}
-                      <div className="lg:col-span-5 flex flex-col items-center">
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                      {/* QR Code */}
+                      <div className="md:col-span-5 flex flex-col items-center">
                         <div className="p-3.5 rounded-xl bg-white shadow-inner border border-zinc-200">
                           <div
                             className="w-44 h-44 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
                             dangerouslySetInnerHTML={{ __html: status.qrSvg }}
                           />
                         </div>
-                        <span className="mt-2.5 text-[11px] text-zinc-500 font-mono-tabular">
-                          Clé éphémère 256-bit • Sans serveur tiers
+                        <span className="mt-2.5 text-[12px] text-zinc-500">
+                          Connexion directe sans passer par Internet
                         </span>
                       </div>
 
-                      {/* Instructions techniques structurées */}
-                      <div className="lg:col-span-7 space-y-4">
+                      {/* Instructions simples */}
+                      <div className="md:col-span-7 space-y-4">
                         <div>
-                          <h2 className="text-[15px] font-semibold text-zinc-100">
-                            Associer un appareil Android sur le réseau local
+                          <h2 className="text-[17px] font-semibold text-zinc-100">
+                            Connectez votre smartphone en un scan
                           </h2>
-                          <p className="text-[12px] text-zinc-400 mt-1 leading-relaxed">
-                            Ouvre l'application native <strong>NexusLink</strong>{" "}
-                            sur ton téléphone Android. Le PC est détecté
-                            automatiquement via mDNS ou en scannant ce code.
+                          <p className="text-[13px] text-zinc-400 mt-1.5 leading-relaxed">
+                            Ouvrez l'application <strong>NexusLink</strong> sur
+                            votre téléphone Android et assurez-vous qu'il est
+                            connecté au même réseau Wi-Fi que cet ordinateur.
                           </p>
                         </div>
 
-                        <div className="rounded-lg bg-[#0c0d11] border border-white/[0.06] divide-y divide-white/[0.05] text-[12px]">
-                          <div className="px-3.5 py-2 flex items-center justify-between">
-                            <span className="text-zinc-400">Hôte local</span>
-                            <span className="font-mono-tabular text-zinc-200">
-                              {status.deviceName}
-                            </span>
+                        <div className="rounded-lg bg-[#0c0d11] border border-white/[0.06] p-4 space-y-2 text-[13px] text-zinc-300">
+                          <div>1. Ouvrez NexusLink sur votre téléphone</div>
+                          <div>
+                            2. Appuyez sur <strong>Scanner le QR Code</strong>
                           </div>
-                          <div className="px-3.5 py-2 flex items-center justify-between">
-                            <span className="text-zinc-400">
-                              Interfaces IPv4
-                            </span>
-                            <span className="font-mono-tabular text-zinc-200">
-                              {status.localIps.join(", ")}
-                            </span>
-                          </div>
-                          <div className="px-3.5 py-2 flex items-center justify-between">
-                            <span className="text-zinc-400">
-                              Empreinte du jeton
-                            </span>
-                            <span className="font-mono-tabular text-indigo-300">
-                              {status.pairingToken.slice(0, 10)}…
-                              {status.pairingToken.slice(-8)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2.5 pt-1">
-                          <button
-                            onClick={handleSimulateDevice}
-                            className="h-8 px-3.5 rounded-md bg-indigo-500 hover:bg-indigo-400 text-white font-medium text-[12px] flex items-center gap-2 transition cursor-pointer"
-                          >
-                            <Smartphone className="w-3.5 h-3.5" />
-                            Simuler la liaison (Pixel 8 Pro)
-                          </button>
-
-                          <button
-                            onClick={handleCopyPairingJson}
-                            className="h-8 px-3 rounded-md bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-zinc-300 text-[12px] flex items-center gap-1.5 transition cursor-pointer"
-                          >
-                            {copiedToken ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                Copié
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5 text-zinc-400" />
-                                Copier la charge utile JSON
-                              </>
-                            )}
-                          </button>
+                          <div>3. Visez ce code avec votre caméra</div>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  /* Tableau de bord matériel de l'appareil connecté */
+                  /* Tableau de bord de l'appareil connecté */
                   <div className="space-y-4">
                     <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-4 flex items-center justify-between">
                       <div className="flex items-center gap-3.5">
@@ -295,14 +220,14 @@ function App() {
                             <h2 className="text-[14px] font-semibold text-zinc-100">
                               {connectedDevice.deviceName}
                             </h2>
-                            <span className="text-[10px] font-mono-tabular px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
-                              Session active
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                              Connecté
                             </span>
                           </div>
-                          <div className="text-[11px] text-zinc-400 font-mono-tabular mt-0.5">
+                          <div className="text-[11px] text-zinc-400 mt-0.5">
                             {connectedDevice.model} • Android{" "}
-                            {connectedDevice.androidVersion} •{" "}
-                            {connectedDevice.ipAddress}
+                            {connectedDevice.androidVersion} • Batterie{" "}
+                            {connectedDevice.batteryLevel}%
                           </div>
                         </div>
                       </div>
@@ -317,12 +242,12 @@ function App() {
                           className="h-8 px-3 rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer"
                         >
                           <MousePointerClick className="w-3.5 h-3.5" />
-                          Configurer le bord d'écran
+                          Position du téléphone
                         </button>
                       </div>
                     </div>
 
-                    {/* Grille de contrôle rapide */}
+                    {/* Raccourcis vers les fonctionnalités */}
                     <div className="grid grid-cols-3 gap-3">
                       <button
                         onClick={() => setActiveSection("input")}
@@ -335,11 +260,7 @@ function App() {
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-400" />
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Bord actif :{" "}
-                          <span className="text-zinc-200 font-mono-tabular">
-                            {selectedEdge}
-                          </span>{" "}
-                          • Canal UDP 120 Hz
+                          Glissez la souris vers votre téléphone pour le contrôler
                         </p>
                       </button>
 
@@ -354,7 +275,7 @@ function App() {
                           <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Synchronisation bidirectionnelle active
+                          Partagez textes, photos et fichiers en un instant
                         </p>
                       </button>
 
@@ -364,12 +285,12 @@ function App() {
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-[12px] font-medium text-zinc-200">
-                            Recopie d'écran
+                            Écran du téléphone
                           </span>
                           <MonitorPlay className="w-3.5 h-3.5 text-zinc-400" />
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Flux direct H.264 sur port {status.httpPort}
+                          Affichez et utilisez votre téléphone sur votre PC
                         </p>
                       </button>
                     </div>
@@ -379,29 +300,21 @@ function App() {
             )}
 
             {activeSection === "input" && (
-              /* Module de positionnement de l'écran du téléphone par rapport au moniteur PC */
-              <div className="space-y-4 max-w-4xl">
+              <div className="space-y-4 max-w-3xl mx-auto">
                 <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-[14px] font-semibold text-zinc-100">
-                        Topologie d'écran & Passage de la souris (PC ↔ Android)
-                      </h2>
-                      <p className="text-[12px] text-zinc-400 mt-0.5">
-                        Choisis de quel côté de ton écran PC se trouve
-                        physiquement ton téléphone pour traverser le bord avec
-                        la souris.
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-mono-tabular px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                      UDP : {status.udpPort}
-                    </span>
+                  <div>
+                    <h2 className="text-[14px] font-semibold text-zinc-100">
+                      Position du téléphone par rapport à votre écran
+                    </h2>
+                    <p className="text-[12px] text-zinc-400 mt-0.5">
+                      Indiquez de quel côté est posé votre téléphone pour y
+                      faire glisser votre souris naturellement.
+                    </p>
                   </div>
 
                   {/* Schéma visuel interactif Moniteur PC + Téléphone */}
                   <div className="h-56 rounded-lg bg-[#0b0c10] border border-white/[0.06] flex items-center justify-center relative p-6">
                     <div className="flex items-center gap-6">
-                      {/* Emplacement Gauche */}
                       <button
                         onClick={() => setSelectedEdge("LEFT")}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
@@ -411,24 +324,20 @@ function App() {
                         }`}
                       >
                         <Smartphone className="w-4 h-4" />
-                        <span className="text-[10px] font-mono-tabular">
-                          Gauche
-                        </span>
+                        <span className="text-[10px]">Gauche</span>
                       </button>
 
-                      {/* Écran principal du PC */}
                       <div className="flex flex-col items-center gap-3">
                         <div className="w-56 h-32 rounded-lg bg-[#151822] border border-white/[0.14] flex flex-col items-center justify-center relative">
                           <Monitor className="w-6 h-6 text-zinc-300 mb-1" />
                           <span className="text-[12px] font-medium text-zinc-200">
                             {status.deviceName}
                           </span>
-                          <span className="text-[10px] font-mono-tabular text-zinc-500">
-                            Écran principal Windows
+                          <span className="text-[10px] text-zinc-500">
+                            Écran de l'ordinateur
                           </span>
                         </div>
 
-                        {/* Emplacement Bas */}
                         <button
                           onClick={() => setSelectedEdge("BOTTOM")}
                           className={`w-28 h-10 rounded-lg border flex items-center justify-center gap-1.5 transition cursor-pointer ${
@@ -438,13 +347,10 @@ function App() {
                           }`}
                         >
                           <Smartphone className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-mono-tabular">
-                            Bas
-                          </span>
+                          <span className="text-[10px]">Bas</span>
                         </button>
                       </div>
 
-                      {/* Emplacement Droite */}
                       <button
                         onClick={() => setSelectedEdge("RIGHT")}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
@@ -454,9 +360,7 @@ function App() {
                         }`}
                       >
                         <Smartphone className="w-4 h-4" />
-                        <span className="text-[10px] font-mono-tabular">
-                          Droite
-                        </span>
+                        <span className="text-[10px]">Droite</span>
                       </button>
                     </div>
                   </div>
@@ -469,8 +373,7 @@ function App() {
                           Résistance au bord de l'écran
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          Empêche la souris de passer sur le téléphone par
-                          erreur
+                          Évite de passer sur le téléphone par erreur
                         </div>
                       </div>
                       <select
@@ -478,21 +381,21 @@ function App() {
                         onChange={(e) =>
                           setEdgeResistanceMs(Number(e.target.value))
                         }
-                        className="bg-[#161922] border border-white/[0.1] rounded px-2.5 py-1 text-[11px] font-mono-tabular text-zinc-200 outline-none"
+                        className="bg-[#161922] border border-white/[0.1] rounded px-2.5 py-1 text-[11px] text-zinc-200 outline-none"
                       >
-                        <option value={0}>Aucune (0 ms)</option>
-                        <option value={120}>Douce (120 ms)</option>
-                        <option value={250}>Ferme (250 ms)</option>
+                        <option value={0}>Aucune</option>
+                        <option value={120}>Douce</option>
+                        <option value={250}>Ferme</option>
                       </select>
                     </div>
 
                     <div className="rounded-lg bg-[#0d0f14] border border-white/[0.06] p-3.5 flex items-center justify-between">
                       <div>
                         <div className="text-[12px] font-medium text-zinc-200">
-                          Exiger le maintien de la touche Ctrl
+                          Maintenir la touche Ctrl
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          Traverse le bord uniquement si Ctrl est maintenu
+                          Passe sur le téléphone uniquement avec Ctrl
                         </div>
                       </div>
                       <input
@@ -508,134 +411,49 @@ function App() {
             )}
 
             {activeSection === "notifications" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-4xl space-y-2">
+              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
                 <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
                   <Bell className="w-4 h-4 text-indigo-400" />
-                  Centre de notifications Android (Jalon 3)
+                  Notifications du téléphone
                 </div>
                 <p className="text-[12px] text-zinc-400">
-                  Les notifications interceptées par{" "}
-                  <code className="font-mono-tabular text-zinc-300">
-                    NotificationListenerService
-                  </code>{" "}
-                  s'afficheront ici avec champ de réponse rapide.
+                  Vos notifications et messages Android apparaîtront ici avec la
+                  possibilité d'y répondre directement depuis votre clavier.
                 </p>
               </div>
             )}
 
             {activeSection === "files" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-4xl space-y-2">
+              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
                 <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
                   <FileUp className="w-4 h-4 text-emerald-400" />
-                  Transfert direct HTTP & Presse-papiers (Jalon 2)
+                  Transfert de fichiers & Presse-papiers
                 </div>
                 <p className="text-[12px] text-zinc-400">
-                  Zone de glisser-déposer de fichiers vers le téléphone et
-                  historique du presse-papiers partagé.
+                  Glissez-déposez des photos ou documents ici pour les envoyer
+                  instantanément sur votre téléphone, et retrouvez votre
+                  presse-papiers partagé.
                 </p>
               </div>
             )}
 
             {activeSection === "mirror" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-4xl space-y-2">
+              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
                 <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
                   <MonitorPlay className="w-4 h-4 text-indigo-400" />
-                  Recopie d'écran Android (Jalon 5)
+                  Écran du téléphone
                 </div>
                 <p className="text-[12px] text-zinc-400">
-                  Réception du flux matériel{" "}
-                  <code className="font-mono-tabular text-zinc-300">
-                    MediaProjection
-                  </code>{" "}
-                  et contrôle direct à la souris dans la fenêtre.
+                  Affichez l'écran de votre téléphone en direct dans cette
+                  fenêtre et contrôlez vos applications à la souris.
                 </p>
               </div>
             )}
           </div>
         </main>
-
-        {/* 3. Panneau Inspecteur Technique ancré à droite */}
-        {inspectorOpen && (
-          <aside className="w-72 h-full bg-[#0e1015]/95 border-l border-white/[0.065] flex flex-col shrink-0">
-            <div className="h-10 px-3.5 border-b border-white/[0.065] flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-                Inspecteur Système
-              </span>
-              <span className="text-[10px] font-mono-tabular text-emerald-400">
-                TEMPS RÉEL
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3.5 space-y-4 text-[11px]">
-              {/* État des canaux */}
-              <div className="space-y-1.5">
-                <div className="text-zinc-500 font-medium">
-                  Sockets & Services locaux
-                </div>
-                <div className="rounded-lg bg-[#13161e] border border-white/[0.06] p-2.5 space-y-2 font-mono-tabular">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">mDNS Daemon</span>
-                    <span className="text-emerald-400">
-                      {status.mdnsActive ? "ONLINE" : "INIT"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">WebSocket</span>
-                    <span className="text-zinc-200">0.0.0.0:{status.wsPort}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">UDP Input</span>
-                    <span className="text-zinc-200">
-                      0.0.0.0:{status.udpPort}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">HTTP Stream</span>
-                    <span className="text-zinc-200">
-                      0.0.0.0:{status.httpPort}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sécurité de session */}
-              <div className="space-y-1.5">
-                <div className="text-zinc-500 font-medium flex items-center gap-1.5">
-                  <KeyRound className="w-3 h-3" />
-                  Sécurité & Authentification
-                </div>
-                <div className="rounded-lg bg-[#13161e] border border-white/[0.06] p-2.5 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">ID Hôte</span>
-                    <span className="font-mono-tabular text-zinc-300">
-                      {status.deviceId.slice(0, 8)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">Trame UDP</span>
-                    <span className="font-mono-tabular text-indigo-300">
-                      16 octets (Big-Endian)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Charge utile JSON d'appairage */}
-              <div className="space-y-1.5">
-                <div className="text-zinc-500 font-medium">
-                  Payload QR d'appairage
-                </div>
-                <pre className="rounded-lg bg-[#090a0e] border border-white/[0.06] p-2.5 text-[10px] font-mono-tabular text-zinc-400 overflow-x-auto leading-relaxed">
-                  {JSON.stringify(JSON.parse(status.qrRawJson), null, 2)}
-                </pre>
-              </div>
-            </div>
-          </aside>
-        )}
       </div>
 
-      {/* 4. Barre d'état inférieure (Status Bar) */}
+      {/* 3. Barre d'état inférieure */}
       <StatusBar status={status} />
 
       {/* Palette de commandes rapides (Ctrl+K) */}
@@ -651,7 +469,7 @@ function App() {
             <div className="px-3.5 py-2.5 border-b border-white/[0.07] flex items-center justify-between text-[12px] text-zinc-300">
               <span className="flex items-center gap-2 font-medium">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                Commandes rapides NexusLink
+                Actions rapides NexusLink
               </span>
               <kbd className="text-[10px] font-mono-tabular text-zinc-500">
                 Échap
@@ -660,27 +478,12 @@ function App() {
             <div className="p-1.5 space-y-0.5 text-[12px]">
               <button
                 onClick={() => {
-                  handleSimulateDevice();
-                  setCommandPaletteOpen(false);
-                }}
-                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-zinc-200 cursor-pointer"
-              >
-                <span>Simuler la connexion d'un Pixel 8 Pro</span>
-                <span className="text-[10px] font-mono-tabular text-zinc-500">
-                  Test
-                </span>
-              </button>
-              <button
-                onClick={() => {
                   handleRegenerateToken();
                   setCommandPaletteOpen(false);
                 }}
                 className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-zinc-200 cursor-pointer"
               >
-                <span>Régénérer la clé et le QR Code d'appairage</span>
-                <span className="text-[10px] font-mono-tabular text-zinc-500">
-                  Sécurité
-                </span>
+                <span>Générer un nouveau QR Code d'association</span>
               </button>
               <button
                 onClick={() => {
@@ -689,7 +492,7 @@ function App() {
                 }}
                 className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-zinc-200 cursor-pointer"
               >
-                <span>Configurer le bord d'écran pour la souris</span>
+                <span>Configurer la position du téléphone</span>
                 <span className="text-[10px] font-mono-tabular text-zinc-500">
                   Alt+2
                 </span>

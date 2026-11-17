@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State, WindowEvent};
 
 use crate::network::{
-    current_time_label, detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
+    detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
     start_mdns_advertisement, start_websocket_server, NetworkState,
 };
-use crate::protocol::{ConnectedDevice, ServerStatus};
+use crate::protocol::ServerStatus;
 
 /// Renvoie l'état actuel du serveur et le QR Code d'appairage à l'interface React
 #[tauri::command]
@@ -44,36 +44,6 @@ fn disconnect_device(
     let status = {
         let mut guard = state.lock().unwrap();
         guard.connected_device = None;
-        guard.to_server_status()
-    };
-    emit_status_update(&state, &app_handle);
-    status
-}
-
-/// Permet de simuler la connexion d'un téléphone Android pour tester l'interface PC
-#[tauri::command]
-fn simulate_device_connection(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-    app_handle: AppHandle,
-) -> ServerStatus {
-    let status = {
-        let mut guard = state.lock().unwrap();
-        guard.connected_device = Some(ConnectedDevice {
-            device_id: "sim-android-pixel-8".to_string(),
-            device_name: "Pixel 8 Pro".to_string(),
-            model: "Google Pixel 8 Pro".to_string(),
-            android_version: "15".to_string(),
-            ip_address: guard
-                .local_ips
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "192.168.1.50".to_string()),
-            battery_level: 86,
-            is_charging: true,
-            ringer_mode: "NORMAL".to_string(),
-            screen_awake: true,
-            connected_at: current_time_label(),
-        });
         guard.to_server_status()
     };
     emit_status_update(&state, &app_handle);
@@ -127,8 +97,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_server_status,
             regenerate_pairing_token,
-            disconnect_device,
-            simulate_device_connection
+            disconnect_device
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
