@@ -1,0 +1,215 @@
+package com.nexuslink.android.network
+
+import android.os.Build
+import android.util.Log
+import com.nexuslink.android.data.PairingStore
+import com.nexuslink.android.data.SavedDesktopPeer
+import com.nexuslink.android.protocol.DeviceStatusPayload
+import com.nexuslink.android.protocol.PairingRequestPayload
+import com.nexuslink.android.protocol.PairingResponsePayload
+import com.nexuslink.android.protocol.WsEnvelope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+
+sealed class ConnectionState {
+    data object Disconnected : ConnectionState()
+    data class Connecting(val targetHost: String) : ConnectionState()
+    data class Connected(val pcName: String, val hostAddress: String) : ConnectionState()
+    data class Error(val message: String) : ConnectionState()
+}
+
+/**
+ * Client WebSocket OkHttp gérant l'appairage, l'authentification et la reconnexion automatique.
+ */
+class NexusWebSocketClient(
+    private val pairingStore: PairingStore,
+    private val statusProvider: () -> DeviceStatusPayload
+) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .pingInterval(15, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private var webSocket: WebSocket? = null
+    private var reconnectJob: Job? = null
+    private var shouldAutoReconnect = false
+    private var currentPeer: SavedDesktopPeer? = null
+
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    fun connectToSavedPeer() {
+        val peer = pairingStore.getSavedDesktopPeer() ?: return
+        connect(peer)
+    }
+
+    fun connect(peer: SavedDesktopPeer) {
+        shouldAutoReconnect = true
+        currentPeer = peer
+        reconnectJob?.cancel()
+        openSocket(peer)
+    }
+
+    fun disconnect(disableReconnect: Boolean = true) {
+        if (disableReconnect) {
+            shouldAutoReconnect = false
+            reconnectJob?.cancel()
+        }
+        webSocket?.close(1000, "Déconnexion demandée")
+        webSocket = null
+        _connectionState.value = ConnectionState.Disconnected
+    }
+
+    fun sendDeviceStatus(status: DeviceStatusPayload): Boolean {
+        return sendEnvelope("DEVICE_STATUS_UPDATE", json.encodeToJsonElement(status))
+    }
+
+    private fun openSocket(peer: SavedDesktopPeer) {
+        webSocket?.cancel()
+        _connectionState.value = ConnectionState.Connecting(peer.hostAddress)
+
+        val url = "ws://${peer.hostAddress}:${peer.wsPort}/ws"
+        val request = Request.Builder().url(url).build()
+
+        webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, response: Response) {
+                Log.d(TAG, "WebSocket ouvert vers $url, envoi de PAIRING_REQUEST")
+                val pairingReq = PairingRequestPayload(
+                    pairingToken = peer.pairingToken,
+                    deviceId = pairingStore.getOrCreateAndroidDeviceId(),
+                    deviceName = pairingStore.getAndroidDeviceName(),
+                    model = Build.MODEL ?: "Android",
+                    androidVersion = Build.VERSION.RELEASE ?: "10+"
+                )
+                val envelope = WsEnvelope(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = System.currentTimeMillis(),
+                    messageType = "PAIRING_REQUEST",
+                    payload = json.encodeToJsonElement(pairingReq)
+                )
+                ws.send(json.encodeToString(envelope))
+            }
+
+            override fun onMessage(ws: WebSocket, text: String) {
+                handleIncomingMessage(text, peer)
+            }
+
+            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                ws.close(1000, null)
+            }
+
+            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket fermé ($code : $reason)")
+                handleDisconnect(peer)
+            }
+
+            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "Erreur WebSocket : ${t.message}", t)
+                _connectionState.value = ConnectionState.Error(
+                    t.localizedMessage ?: "Connexion impossible vers ${peer.hostAddress}"
+                )
+                scheduleReconnect(peer)
+            }
+        })
+    }
+
+    private fun handleIncomingMessage(rawJson: String, peer: SavedDesktopPeer) {
+        val envelope = try {
+            json.decodeFromString<WsEnvelope>(rawJson)
+        } catch (e: Exception) {
+            Log.w(TAG, "Message WebSocket ignoré (JSON invalide)", e)
+            return
+        }
+
+        when (envelope.messageType) {
+            "PAIRING_RESPONSE" -> {
+                val resp = try {
+                    json.decodeFromJsonElement<PairingResponsePayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Impossible de décoder PAIRING_RESPONSE", e)
+                    return
+                }
+
+                if (resp.accepted) {
+                    pairingStore.updateSessionSecret(resp.pcName, resp.sessionSecret)
+                    _connectionState.value = ConnectionState.Connected(
+                        pcName = resp.pcName,
+                        hostAddress = peer.hostAddress
+                    )
+                    // Envoie immédiatement l'état initial (batterie / charge) au PC
+                    sendDeviceStatus(statusProvider())
+                } else {
+                    shouldAutoReconnect = false
+                    _connectionState.value = ConnectionState.Error(
+                        resp.errorMessage ?: "Appairage refusé par le PC"
+                    )
+                    disconnect(disableReconnect = true)
+                }
+            }
+            else -> {
+                Log.d(TAG, "Message reçu : ${envelope.messageType}")
+            }
+        }
+    }
+
+    private fun handleDisconnect(peer: SavedDesktopPeer) {
+        if (_connectionState.value !is ConnectionState.Error) {
+            _connectionState.value = ConnectionState.Disconnected
+        }
+        scheduleReconnect(peer)
+    }
+
+    private fun scheduleReconnect(peer: SavedDesktopPeer) {
+        if (!shouldAutoReconnect) return
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            delay(RECONNECT_DELAY_MS)
+            if (shouldAutoReconnect && currentPeer?.hostAddress == peer.hostAddress) {
+                Log.d(TAG, "Tentative de reconnexion automatique vers ${peer.hostAddress}...")
+                openSocket(peer)
+            }
+        }
+    }
+
+    private fun sendEnvelope(type: String, payload: kotlinx.serialization.json.JsonElement): Boolean {
+        val ws = webSocket ?: return false
+        val envelope = WsEnvelope(
+            id = UUID.randomUUID().toString(),
+            timestamp = System.currentTimeMillis(),
+            messageType = type,
+            payload = payload
+        )
+        return ws.send(json.encodeToString(envelope))
+    }
+
+    companion object {
+        private const val TAG = "NexusWebSocketClient"
+        private const val RECONNECT_DELAY_MS = 4000L
+    }
+}
