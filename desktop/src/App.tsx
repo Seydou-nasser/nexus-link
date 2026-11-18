@@ -37,6 +37,7 @@ function App() {
   const [edgeResistanceMs, setEdgeResistanceMs] = useState<number>(120);
   const [requireCtrlKey, setRequireCtrlKey] = useState<boolean>(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState<boolean>(false);
   const [isRingingPhone, setIsRingingPhone] = useState<boolean>(false);
   const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryEntry[]>([]);
   const [fileTransfers, setFileTransfers] = useState<FileTransferRecord[]>([]);
@@ -195,6 +196,7 @@ function App() {
         setActiveSection("mirror");
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
+        setDisconnectConfirmOpen(false);
       }
     };
 
@@ -237,7 +239,7 @@ function App() {
           activeSection={activeSection}
           onSelectSection={setActiveSection}
           connectedDevice={connectedDevice}
-          onDisconnectDevice={handleDisconnectDevice}
+          onDisconnectDevice={() => setDisconnectConfirmOpen(true)}
           notificationsCount={notifications.length}
         />
 
@@ -742,6 +744,50 @@ function App() {
                 className="h-9 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[13px] font-medium text-white transition cursor-pointer"
               >
                 Accepter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale de confirmation de déconnexion */}
+      {disconnectConfirmOpen && connectedDevice && (
+        <div
+          onClick={() => setDisconnectConfirmOpen(false)}
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-[#141720] border border-white/[0.12] shadow-2xl p-6 space-y-5"
+          >
+            <div className="space-y-1.5">
+              <h3 className="text-[16px] font-semibold text-zinc-100">
+                Déconnecter l&apos;appareil ?
+              </h3>
+              <p className="text-[13px] text-zinc-400">
+                Voulez-vous vraiment déconnecter et dissocier{" "}
+                <strong className="text-zinc-200">
+                  {connectedDevice.deviceName}
+                </strong>{" "}
+                de cet ordinateur ?
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setDisconnectConfirmOpen(false)}
+                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-zinc-300 transition cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  setDisconnectConfirmOpen(false);
+                  await handleDisconnectDevice();
+                }}
+                className="h-9 px-4 rounded-lg bg-rose-500 hover:bg-rose-400 text-[13px] font-medium text-white transition cursor-pointer"
+              >
+                Déconnecter
               </button>
             </div>
           </div>
