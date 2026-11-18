@@ -162,19 +162,19 @@ flowchart LR
 ## Étape 5 — Jalon 4 : Passage fluide de la souris et du clavier du PC vers le téléphone (UDP 120 Hz)
 
 ### 5.1. Capture Souris/Clavier au bord de l'écran et émetteur UDP côté PC (Rust)
-- [ ] **5.1.1. Encodeur et émetteur UDP binaire (`desktop/src-tauri/src/udp_input.rs`)** :
+- [x] **5.1.1. Encodeur et émetteur UDP binaire (`desktop/src-tauri/src/udp_input.rs`)** :
   - Implémentation de la sérialisation binaire de **16 octets** Big-Endian définie dans `docs/protocol-spec.md` (`MouseMove`, `MouseButton`, `MouseWheel`, `KeyEvent` + numéro de séquence + tag d'authentification rapide).
   - Socket UDP non-bloquant envoyant les trames à `<IP_ANDROID>:52841`.
-- [ ] **5.1.2. Hook bas niveau Windows et détection du bord d'écran (`desktop/src-tauri/src/input_hook.rs`)** :
+- [x] **5.1.2. Hook bas niveau Windows et détection du bord d'écran (`desktop/src-tauri/src/input_hook.rs`)** :
   - Surveillance de la position du curseur sous Windows et détection du bord configuré (`LEFT`, `RIGHT`, `BOTTOM`).
   - Application de la sécurité anti-franchissement accidentel (résistance temporelle en ms ou maintien de la touche `Ctrl`).
   - Lors du basculement vers Android : envoi de `INPUT_FOCUS_STATE (activeTarget = ANDROID)`, verrouillage/masquage du curseur local Windows, capture des deltas $\Delta x, \Delta y$, des boutons, de la molette et du clavier, et transmission immédiate en UDP.
   - Retour automatique sur le PC lorsque le curseur retraverse le bord opposé ou à l'appui sur `Échap`.
 
 ### 5.2. Récepteur UDP, curseur virtuel en surimpression et injection sur Android
-- [ ] **5.2.1. Serveur UDP basse latence (`android/.../network/UdpInputReceiver.kt`)** :
+- [x] **5.2.1. Serveur UDP basse latence (`android/.../network/UdpInputReceiver.kt`)** :
   - Écoute sur le port UDP `52841`, vérifie l'en-tête magique `0x4E` et le numéro de séquence, et transmet les événements décodés au service d'accessibilité.
-- [ ] **5.2.2. Service d'accessibilité et Overlay curseur (`android/.../service/CursorAccessibilityService.kt`)** :
+- [x] **5.2.2. Service d'accessibilité et Overlay curseur (`android/.../service/CursorAccessibilityService.kt`)** :
   - Déclaration du `AccessibilityService` dans `AndroidManifest.xml` avec fichier de configuration XML (`canPerformGestures="true"`, `canRetrieveWindowContent="true"`).
   - Affichage d'un curseur de souris vectoriel fluide par-dessus l'écran via `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`).
   - Exécution des clics simples, clics maintenus, défilements (molette) et glisser-déposer via `dispatchGesture(GestureDescription)`.
