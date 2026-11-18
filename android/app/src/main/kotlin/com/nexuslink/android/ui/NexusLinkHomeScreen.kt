@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -90,6 +91,7 @@ fun NexusLinkHomeScreen(
     modifier: Modifier = Modifier
 ) {
     var showHistoryPage by remember { mutableStateOf(false) }
+    var showDisconnectConfirm by remember { mutableStateOf(false) }
 
     if (showHistoryPage) {
         val pcName = (connectionState as? ConnectionState.Connected)?.pcName ?: "PC"
@@ -102,6 +104,36 @@ fun NexusLinkHomeScreen(
             modifier = modifier
         )
         return
+    }
+
+    if (showDisconnectConfirm) {
+        val pcName = (connectionState as? ConnectionState.Connected)?.pcName ?: "cet ordinateur"
+        AlertDialog(
+            onDismissRequest = { showDisconnectConfirm = false },
+            title = { Text("Déconnecter l'ordinateur ?") },
+            text = {
+                Text("Voulez-vous vraiment déconnecter et dissocier cet appareil de $pcName ?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDisconnectConfirm = false
+                        onDisconnect()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Déconnecter")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisconnectConfirm = false }) {
+                    Text("Annuler")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -178,7 +210,7 @@ fun NexusLinkHomeScreen(
                     enabled = connectionState !is ConnectionState.WaitingApproval,
                     iconType = if (isConnected) QuickIconType.DISCONNECT else QuickIconType.QR,
                     onClick = {
-                        if (isConnected) onDisconnect() else onOpenQrScanner()
+                        if (isConnected) showDisconnectConfirm = true else onOpenQrScanner()
                     },
                     modifier = Modifier.weight(1f)
                 )
