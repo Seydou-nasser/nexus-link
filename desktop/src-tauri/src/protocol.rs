@@ -161,3 +161,56 @@ pub struct FileTransferRecord {
     pub thumbnail_base64: Option<String>,
     pub timestamp: String,
 }
+
+/// Notification Android interceptée et reçue via WebSocket
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPostedPayload {
+    pub notification_key: String,
+    pub package_name: String,
+    pub app_name: String,
+    pub title: String,
+    pub text: String,
+    pub can_reply: bool,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub icon_base64: Option<String>,
+}
+
+/// Notification supprimée sur Android
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationRemovedPayload {
+    pub notification_key: String,
+}
+
+/// Réponse directe envoyée depuis le PC vers Android
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationReplyPayload {
+    pub notification_key: String,
+    pub reply_text: String,
+}
+
+/// Demande de suppression d'une notification envoyée depuis le PC vers Android
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDismissPayload {
+    pub notification_key: String,
+}
+
+/// Notification active stockée et affichée dans le centre de notifications PC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneNotificationRecord {
+    pub notification_key: String,
+    pub package_name: String,
+    pub app_name: String,
+    pub title: String,
+    pub text: String,
+    pub can_reply: bool,
+    pub actions: Vec<String>,
+    pub icon_base64: Option<String>,
+    pub timestamp: String,
+}

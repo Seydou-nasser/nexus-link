@@ -1,6 +1,7 @@
 pub mod clipboard;
 pub mod file_server;
 pub mod network;
+pub mod notifications;
 pub mod protocol;
 pub mod tray;
 
@@ -14,7 +15,9 @@ use crate::network::{
     detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
     start_mdns_advertisement, start_websocket_server, NetworkState,
 };
-use crate::protocol::{ClipboardHistoryEntry, FileTransferRecord, ServerStatus};
+use crate::protocol::{
+    ClipboardHistoryEntry, FileTransferRecord, PhoneNotificationRecord, ServerStatus,
+};
 
 /// Renvoie l'état actuel du serveur et le QR Code d'appairage à l'interface React
 #[tauri::command]
@@ -175,6 +178,35 @@ fn open_local_file(path: String, app_handle: AppHandle) {
     let _ = app_handle.opener().open_path(path, None::<&str>);
 }
 
+/// Renvoie la liste des notifications actives du téléphone
+#[tauri::command]
+fn get_notifications(
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Vec<PhoneNotificationRecord> {
+    let guard = state.lock().unwrap();
+    guard.notifications.clone()
+}
+
+/// Envoie une réponse directe à une notification Android
+#[tauri::command]
+fn reply_to_notification(
+    notification_key: String,
+    reply_text: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> bool {
+    notifications::reply_to_notification(notification_key, reply_text, &state)
+}
+
+/// Supprime une notification sur le téléphone et dans le centre de notifications PC
+#[tauri::command]
+fn dismiss_notification(
+    notification_key: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> bool {
+    notifications::dismiss_notification(notification_key, &state, &app_handle)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -255,7 +287,10 @@ pub fn run() {
             send_files_to_phone,
             pick_and_send_files,
             open_downloads_folder,
-            open_local_file
+            open_local_file,
+            get_notifications,
+            reply_to_notification,
+            dismiss_notification
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");

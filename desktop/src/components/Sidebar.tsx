@@ -22,6 +22,7 @@ interface SidebarProps {
   onSelectSection: (section: NavSectionId) => void;
   connectedDevice: ConnectedDevice | null;
   onDisconnectDevice: () => void;
+  notificationsCount?: number;
 }
 
 interface NavItem {
@@ -69,6 +70,7 @@ export function Sidebar({
   onSelectSection,
   connectedDevice,
   onDisconnectDevice,
+  notificationsCount = 0,
 }: SidebarProps) {
   return (
     <aside className="w-56 h-full bg-[#0e1015]/90 border-r border-white/[0.065] flex flex-col justify-between shrink-0">
@@ -101,8 +103,15 @@ export function Sidebar({
                     <span className="truncate">{item.label}</span>
                   </span>
 
-                  <span className="text-[11px] font-mono-tabular text-zinc-600">
-                    {item.shortcut}
+                  <span className="flex items-center gap-2 shrink-0">
+                    {item.id === "notifications" && notificationsCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-medium leading-none">
+                        {notificationsCount}
+                      </span>
+                    )}
+                    <span className="text-[11px] font-mono-tabular text-zinc-600">
+                      {item.shortcut}
+                    </span>
                   </span>
                 </button>
               );

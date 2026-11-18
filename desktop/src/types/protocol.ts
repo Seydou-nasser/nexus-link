@@ -26,6 +26,18 @@ export interface ClipboardHistoryEntry {
   timestamp: string;
 }
 
+export interface PhoneNotificationRecord {
+  notificationKey: string;
+  packageName: string;
+  appName: string;
+  title: string;
+  text: string;
+  canReply: boolean;
+  actions: string[];
+  iconBase64: string | null;
+  timestamp: string;
+}
+
 export interface FileTransferRecord {
   fileId: string;
   fileName: string;
@@ -56,5 +68,17 @@ export interface ServerStatus {
 export interface ClipboardHistoryEntry {
   content: string;
   source: string;
+  timestamp: string;
+}
+
+export interface PhoneNotificationRecord {
+  notificationKey: string;
+  packageName: string;
+  appName: string;
+  title: string;
+  text: string;
+  canReply: boolean;
+  actions: string[];
+  iconBase64: string | null;
   timestamp: string;
 }

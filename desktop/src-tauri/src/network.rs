@@ -19,8 +19,9 @@ use uuid::Uuid;
 
 use crate::protocol::{
     ClipboardHistoryEntry, ClipboardSyncPayload, ConnectedDevice, DeviceStatusPayload,
-    FileTransferRecord, PairedDeviceRecord, PairingQrPayload, PairingRequestPayload,
-    PairingResponsePayload, PendingPairingRequest, ServerStatus, WsEnvelope,
+    FileTransferRecord, NotificationPostedPayload, NotificationRemovedPayload, PairedDeviceRecord,
+    PairingQrPayload, PairingRequestPayload, PairingResponsePayload, PendingPairingRequest,
+    PhoneNotificationRecord, ServerStatus, WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
@@ -56,6 +57,7 @@ pub struct NetworkState {
     pub clipboard_history: Vec<ClipboardHistoryEntry>,
     pub outgoing_files: HashMap<String, OutgoingPayload>,
     pub file_transfers: Vec<FileTransferRecord>,
+    pub notifications: Vec<PhoneNotificationRecord>,
 }
 
 impl NetworkState {
@@ -89,6 +91,7 @@ impl NetworkState {
             clipboard_history: Vec::new(),
             outgoing_files: HashMap::new(),
             file_transfers: Vec::new(),
+            notifications: Vec::new(),
         }
     }
 
@@ -415,6 +418,28 @@ async fn handle_ws_connection(
                                 );
                             }
                         }
+                        "NOTIFICATION_POSTED" if is_authenticated => {
+                            if let Ok(notif) =
+                                serde_json::from_value::<NotificationPostedPayload>(envelope.payload)
+                            {
+                                crate::notifications::handle_notification_posted(
+                                    notif,
+                                    &state,
+                                    &app_handle,
+                                );
+                            }
+                        }
+                        "NOTIFICATION_REMOVED" if is_authenticated => {
+                            if let Ok(removed) =
+                                serde_json::from_value::<NotificationRemovedPayload>(envelope.payload)
+                            {
+                                crate::notifications::handle_notification_removed(
+                                    removed,
+                                    &state,
+                                    &app_handle,
+                                );
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -428,6 +453,7 @@ async fn handle_ws_connection(
             guard.active_ws_tx = None;
             guard.connected_device = None;
         }
+        crate::notifications::clear_notifications(&state, &app_handle);
         emit_status_update(&state, &app_handle);
     }
 }
@@ -603,5 +629,5 @@ pub fn current_time_label() -> String {
     let hours = (secs / 3600) % 24;
     let minutes = (secs % 3600) / 60;
     let seconds = secs % 60;
-    format!("{:02}:{:02}:{:02} UTC", hours, minutes, seconds)
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }

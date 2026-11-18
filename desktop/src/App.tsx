@@ -4,7 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   ArrowLeftRight,
-  Bell,
   Clipboard,
   FileUp,
   FolderOpen,
@@ -17,12 +16,14 @@ import {
   Sparkles,
   Volume2,
 } from "lucide-react";
+import { NotificationsPanel } from "./components/NotificationsPanel";
 import { Sidebar, type NavSectionId } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import type {
   ClipboardHistoryEntry,
   FileTransferRecord,
+  PhoneNotificationRecord,
   ServerStatus,
 } from "./types/protocol";
 import "./App.css";
@@ -39,6 +40,7 @@ function App() {
   const [isRingingPhone, setIsRingingPhone] = useState<boolean>(false);
   const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryEntry[]>([]);
   const [fileTransfers, setFileTransfers] = useState<FileTransferRecord[]>([]);
+  const [notifications, setNotifications] = useState<PhoneNotificationRecord[]>([]);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
   const fetchServerStatus = async () => {
@@ -94,6 +96,29 @@ function App() {
     }
   };
 
+  const handleReplyNotification = async (
+    notificationKey: string,
+    replyText: string
+  ): Promise<boolean> => {
+    try {
+      return await invoke<boolean>("reply_to_notification", {
+        notificationKey,
+        replyText,
+      });
+    } catch (error) {
+      console.error("Impossible d'envoyer la réponse :", error);
+      return false;
+    }
+  };
+
+  const handleDismissNotification = async (notificationKey: string) => {
+    try {
+      await invoke<boolean>("dismiss_notification", { notificationKey });
+    } catch (error) {
+      console.error("Impossible de fermer la notification :", error);
+    }
+  };
+
   useEffect(() => {
     fetchServerStatus();
     invoke<ClipboardHistoryEntry[]>("get_clipboard_history")
@@ -101,6 +126,9 @@ function App() {
       .catch(() => {});
     invoke<FileTransferRecord[]>("get_file_transfers")
       .then(setFileTransfers)
+      .catch(() => {});
+    invoke<PhoneNotificationRecord[]>("get_notifications")
+      .then(setNotifications)
       .catch(() => {});
 
     const unlistenPromise = listen<ServerStatus>(
@@ -124,6 +152,13 @@ function App() {
       "nexus://files-updated",
       (event) => {
         setFileTransfers(event.payload);
+      }
+    );
+
+    const unlistenNotificationsPromise = listen<PhoneNotificationRecord[]>(
+      "nexus://notifications-updated",
+      (event) => {
+        setNotifications(event.payload);
       }
     );
 
@@ -170,6 +205,7 @@ function App() {
       unlistenPromise.then((unlisten) => unlisten());
       unlistenClipboardPromise.then((unlisten) => unlisten());
       unlistenFilesPromise.then((unlisten) => unlisten());
+      unlistenNotificationsPromise.then((unlisten) => unlisten());
       unlistenDragDropPromise.then((unlisten) => unlisten());
     };
   }, []);
@@ -202,6 +238,7 @@ function App() {
           onSelectSection={setActiveSection}
           connectedDevice={connectedDevice}
           onDisconnectDevice={handleDisconnectDevice}
+          notificationsCount={notifications.length}
         />
 
         {/* Zone de travail principale */}
@@ -501,16 +538,12 @@ function App() {
             )}
 
             {activeSection === "notifications" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
-                <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
-                  <Bell className="w-4 h-4 text-indigo-400" />
-                  Notifications du téléphone
-                </div>
-                <p className="text-[12px] text-zinc-400">
-                  Vos notifications et messages Android apparaîtront ici avec la
-                  possibilité d'y répondre directement depuis votre clavier.
-                </p>
-              </div>
+              <NotificationsPanel
+                notifications={notifications}
+                connectedDevice={connectedDevice}
+                onReply={handleReplyNotification}
+                onDismiss={handleDismissNotification}
+              />
             )}
 
             {activeSection === "files" && (
