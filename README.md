@@ -4,7 +4,7 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
 
 ---
 
-## Fonctionnalités disponibles (Jalon 1 & Jalon 2 partiel)
+## Fonctionnalités disponibles (Jalons 1 & 2)
 
 - **Découverte automatique sur le réseau Wi-Fi local** (mDNS / Zeroconf) sans configuration manuelle.
 - **Deux modes d'association sécurisés** :
@@ -12,14 +12,18 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
   - **En un clic depuis la liste « Ordinateurs à proximité »** sur Android, avec notification Windows et **code de vérification à 6 chiffres** affiché sur les deux écrans.
 - **Mémorisation locale & reconnexion automatique** : les appareils associés sont enregistrés localement (`paired_devices.json` côté PC et préférences Android) pour se reconnecter automatiquement après redémarrage.
 - **Déconnexion synchronisée bidirectionnelle** : la déconnexion depuis le téléphone ou depuis le PC réinitialise immédiatement la session sur les deux appareils.
-- **Application PC résidente en barre système (_System Tray_)** : continue de fonctionner en arrière-plan avec une empreinte mémoire minimale.
-- **Service persistant Android (_ForegroundService_)** : maintient la liaison active même lorsque l'application est en arrière-plan.
+- **Application PC résidente en barre système (_System Tray_)** et **service persistant Android (_ForegroundService_)**.
 - **État du téléphone en temps réel & « Faire sonner »** : suivi en direct de la batterie, de la charge et du mode sonnerie, et déclenchement de la sonnerie à volume maximal depuis le PC (même en mode silencieux/vibreur).
-- **Presse-papiers bidirectionnel 100 % automatique** : synchronisation instantanée PC ↔ Android de tout texte copié, sans intervention manuelle (via `AccessibilityService` côté Android, sans ADB).
+- **Presse-papiers bidirectionnel 100 % automatique (Texte & Captures d'écran)** :
+  - Synchronisation instantanée PC ↔ Android des textes copiés (`AccessibilityService`, sans ADB).
+  - Synchronisation automatique des captures d'écran / images du presse-papiers en JPEG ($\le$ 5 Mo) dans les deux sens (`ScreenshotObserver` universel sur Android).
+- **Transfert rapide de fichiers & photos (`HTTP :52842`)** :
+  - Envoi par glisser-déposer ou sélecteur natif depuis le PC, et via le sélecteur ou le menu système **« Envoyer vers mon PC (NexusLink) »** depuis Android.
+  - Enregistrement automatique dans `Téléchargements\NexusLink` (PC) et `Downloads/NexusLink` (Android) avec miniatures et ouverture directe au clic.
 
 ## Feuille de route
 
-- **Jalon 2 (suite)** _(en cours)_ : transfert rapide de fichiers et photos en Wi-Fi (`HTTP :52842`).
+- **Jalon 3** _(prochaine étape)_ : Synchronisation des notifications Android vers Windows avec réponse directe.
 - **Jalon 3** _(à venir)_ : Synchronisation des notifications Android vers Windows avec réponse directe.
 - **Jalon 4** _(à venir)_ : Passage fluide de la souris et du clavier du bord de l'écran du PC vers le téléphone (UDP basse latence).
 - **Jalon 5** _(à venir)_ : Recopie d'écran du téléphone sur le PC (_Screen Mirroring_).

@@ -127,14 +127,14 @@ flowchart LR
   - Réception de `CLIPBOARD_SYNC` venant du PC et écriture immédiate dans le `ClipboardManager` d'Android.
   - Action rapide dans la notification persistante (« Envoyer le presse-papiers au PC ») et activité transparente de partage texte pour envoyer le presse-papiers du téléphone vers le PC malgré les restrictions d'arrière-plan d'Android 10+.
 
-### 3.3. Transfert rapide de fichiers et photos (HTTP `:52842`)
-- [ ] **3.3.1. Côté PC (`desktop/src-tauri/src/file_server.rs`)** :
-  - Serveur HTTP asynchrone sur le port `52842` vérifiant l'en-tête `Authorization: Bearer <sessionSecret>`.
-  - Endpoint `POST /api/v1/files/upload` : réception en flux (*streaming*) des fichiers envoyés depuis Android et enregistrement dans le dossier `Téléchargements/NexusLink` du PC.
-  - Endpoint `GET /api/v1/files/download/:fileId` + notification WebSocket `FILE_TRANSFER_OFFER` : permet au PC d'envoyer un fichier glissé-déposé vers le téléphone à la vitesse maximale du Wi-Fi.
-- [ ] **3.3.2. Côté Android (`network/FileTransferManager.kt` & `ShareReceiverActivity.kt`)** :
-  - Téléchargement automatique dans `Downloads/NexusLink` lorsqu'une offre `FILE_TRANSFER_OFFER` est reçue du PC.
-  - Intégration au menu système Android **« Partager vers NexusLink »** (`Intent.ACTION_SEND` / `ACTION_SEND_MULTIPLE`) pour envoyer une ou plusieurs photos/fichiers vers le PC en un clic.
+### 3.3. Transfert rapide de fichiers, photos et images du presse-papiers (HTTP `:52842`)
+- [x] **3.3.1. Côté PC (`desktop/src-tauri/src/file_server.rs` & `clipboard.rs`)** :
+  - Serveur HTTP asynchrone (`axum`) sur le port `52842` vérifiant l'en-tête `Authorization: Bearer <sessionSecret>`.
+  - Endpoint `POST /api/v1/files/upload` : réception automatique en flux des fichiers dans `Téléchargements/NexusLink`, et prise en charge des images du presse-papiers (JPEG $\le$ 5 Mo) injectées dans le presse-papiers Windows.
+  - Endpoint `GET /api/v1/files/download/:fileId` + offre WebSocket `FILE_TRANSFER_OFFER` pour envoyer des fichiers (glisser-déposer ou sélecteur natif) et des captures d'écran JPEG ($\le$ 5 Mo) vers Android.
+- [x] **3.3.2. Côté Android (`network/FileTransferManager.kt` & `ShareReceiverActivity.kt`)** :
+  - Téléchargement automatique dans `Downloads/NexusLink` pour les fichiers, et écriture dans `ClipboardManager` (via `FileProvider`) pour les images du presse-papiers.
+  - Bouton « Envoyer des fichiers » dans l'app + intégration au menu système **« Partager vers NexusLink »** (`ACTION_SEND` / `ACTION_SEND_MULTIPLE`) + prise en charge des images copiées via `NexusAccessibilityService`.
 
 ---
 
