@@ -6,13 +6,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.net.Uri
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
 import com.nexuslink.android.data.PairingStore
+import com.nexuslink.android.network.AndroidTransferRecord
 import com.nexuslink.android.network.ConnectionState
+import com.nexuslink.android.network.FileTransferManager
 import com.nexuslink.android.network.NexusWebSocketClient
 import com.nexuslink.android.network.NsdDiscoveryManager
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
@@ -43,6 +46,8 @@ class ConnectionForegroundService : Service() {
     private lateinit var deviceStatusMonitor: DeviceStatusMonitor
     private lateinit var ringPhoneController: RingPhoneController
     private lateinit var clipboardSyncManager: ClipboardSyncManager
+    private lateinit var fileTransferManager: FileTransferManager
+    private lateinit var screenshotObserver: ScreenshotObserver
     private lateinit var webSocketClient: NexusWebSocketClient
 
     val connectionState: StateFlow<ConnectionState>
@@ -57,6 +62,9 @@ class ConnectionForegroundService : Service() {
     val isRinging: StateFlow<Boolean>
         get() = ringPhoneController.isRinging
 
+    val recentTransfers: StateFlow<List<AndroidTransferRecord>>
+        get() = fileTransferManager.recentTransfers
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -65,9 +73,30 @@ class ConnectionForegroundService : Service() {
         pairingStore = PairingStore(this)
         nsdDiscoveryManager = NsdDiscoveryManager(this)
         ringPhoneController = RingPhoneController(this)
-        clipboardSyncManager = ClipboardSyncManager(this) { content ->
-            webSocketClient.sendClipboard(content)
-        }
+        clipboardSyncManager = ClipboardSyncManager(
+            context = this,
+            onSendClipboardToPc = { content -> webSocketClient.sendClipboard(content) },
+            onSendClipboardImageToPc = { jpegBytes ->
+                fileTransferManager.uploadClipboardImage(jpegBytes)
+            }
+        )
+        fileTransferManager = FileTransferManager(
+            context = this,
+            pairingStore = pairingStore,
+            onClipboardImageDownloaded = { imageFile ->
+                clipboardSyncManager.applyRemoteClipboardImage(imageFile)
+            },
+            onFileSavedNotification = { fileName ->
+                showFileReceivedNotification(fileName)
+            }
+        )
+        screenshotObserver = ScreenshotObserver(
+            context = this,
+            isConnected = { connectionState.value is ConnectionState.Connected },
+            onScreenshotCaptured = { jpegBytes ->
+                fileTransferManager.uploadClipboardImage(jpegBytes)
+            }
+        )
         deviceStatusMonitor = DeviceStatusMonitor(this) { status ->
             webSocketClient.sendDeviceStatus(status)
         }
@@ -82,6 +111,9 @@ class ConnectionForegroundService : Service() {
             },
             onClipboardReceived = { content ->
                 clipboardSyncManager.applyRemoteClipboard(content)
+            },
+            onFileOfferReceived = { offer ->
+                fileTransferManager.handleIncomingOffer(offer)
             }
         )
 
@@ -107,6 +139,7 @@ class ConnectionForegroundService : Service() {
         }
 
         deviceStatusMonitor.start()
+        screenshotObserver.start()
         nsdDiscoveryManager.startDiscovery()
         webSocketClient.connectToSavedPeer()
     }
@@ -132,6 +165,7 @@ class ConnectionForegroundService : Service() {
     override fun onDestroy() {
         activeInstance = null
         ringPhoneController.stopRinging()
+        screenshotObserver.stop()
         deviceStatusMonitor.stop()
         nsdDiscoveryManager.stopDiscovery()
         webSocketClient.disconnect(disableReconnect = true)
@@ -168,6 +202,23 @@ class ConnectionForegroundService : Service() {
         if (connectionState.value is ConnectionState.Connected) {
             clipboardSyncManager.syncLocalClipboardToPc(focusedContext)
         }
+    }
+
+    fun sendFiles(uris: List<Uri>) {
+        if (connectionState.value is ConnectionState.Connected) {
+            fileTransferManager.uploadFiles(uris)
+        }
+    }
+
+    private fun showFileReceivedNotification(fileName: String) {
+        val manager = getSystemService(NotificationManager::class.java)
+        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Fichier reçu via NexusLink")
+            .setContentText("$fileName enregistré dans Téléchargements/NexusLink")
+            .setAutoCancel(true)
+            .build()
+        manager.notify(FILE_NOTIFICATION_ID, notif)
     }
 
     private fun createNotificationChannel() {
@@ -232,6 +283,7 @@ class ConnectionForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "nexuslink_connection_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val FILE_NOTIFICATION_ID = 1002
         const val ACTION_STOP_SERVICE = "com.nexuslink.android.ACTION_STOP_SERVICE"
         const val ACTION_STOP_RINGING = "com.nexuslink.android.ACTION_STOP_RINGING"
 
@@ -244,6 +296,10 @@ class ConnectionForegroundService : Service() {
 
         fun syncClipboardFromAccessibility(focusedContext: android.content.Context) {
             activeInstance?.get()?.syncLocalClipboardToPc(focusedContext)
+        }
+
+        fun sendFilesFromShare(uris: List<Uri>) {
+            activeInstance?.get()?.sendFiles(uris)
         }
     }
 }

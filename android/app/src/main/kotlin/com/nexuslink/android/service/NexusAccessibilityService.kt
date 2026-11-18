@@ -32,10 +32,21 @@ class NexusAccessibilityService : AccessibilityService() {
             return
         }
 
-        val shouldProbe = when (evt.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> isCopyActionEvent(evt)
-            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> isCopyActionEvent(evt)
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+        val isScreenshotOrSystemUi = pkg == "com.android.systemui" ||
+            pkg == "android" ||
+            pkg.contains("screenshot", ignoreCase = true) ||
+            pkg.contains("smartcapture", ignoreCase = true) ||
+            pkg.contains("screencapture", ignoreCase = true)
+
+        val shouldProbe = when {
+            isScreenshotOrSystemUi && (
+                evt.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                    evt.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                    evt.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+                ) -> true
+            evt.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED -> isCopyActionEvent(evt)
+            evt.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> isCopyActionEvent(evt)
+            evt.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (pkg != lastActivePackage) {
                     lastActivePackage = pkg
                     true
@@ -85,7 +96,7 @@ class NexusAccessibilityService : AccessibilityService() {
             probeClipboardWithFocusedOverlay()
         }
         pendingCheckRunnable = runnable
-        mainHandler.postDelayed(runnable, 220L)
+        mainHandler.postDelayed(runnable, 250L)
     }
 
     private fun probeClipboardWithFocusedOverlay() {

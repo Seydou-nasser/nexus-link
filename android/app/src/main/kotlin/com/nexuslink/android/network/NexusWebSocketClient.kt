@@ -7,6 +7,7 @@ import com.nexuslink.android.data.SavedDesktopPeer
 import com.nexuslink.android.protocol.ClipboardSyncPayload
 import com.nexuslink.android.protocol.DeviceStatusPayload
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
+import com.nexuslink.android.protocol.FileTransferOfferPayload
 import com.nexuslink.android.protocol.FindMyPhonePayload
 import com.nexuslink.android.protocol.PairingRequestPayload
 import com.nexuslink.android.protocol.PairingResponsePayload
@@ -48,7 +49,8 @@ class NexusWebSocketClient(
     private val pairingStore: PairingStore,
     private val statusProvider: () -> DeviceStatusPayload,
     private val onFindMyPhoneCommand: (String) -> Unit = {},
-    private val onClipboardReceived: (String) -> Unit = {}
+    private val onClipboardReceived: (String) -> Unit = {},
+    private val onFileOfferReceived: (FileTransferOfferPayload) -> Unit = {}
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -253,6 +255,15 @@ class NexusWebSocketClient(
                     return
                 }
                 onClipboardReceived(clip.content)
+            }
+            "FILE_TRANSFER_OFFER" -> {
+                val offer = try {
+                    json.decodeFromJsonElement<FileTransferOfferPayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder FILE_TRANSFER_OFFER", e)
+                    return
+                }
+                onFileOfferReceived(offer)
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")

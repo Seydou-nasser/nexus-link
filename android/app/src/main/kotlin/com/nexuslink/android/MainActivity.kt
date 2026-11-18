@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import com.nexuslink.android.network.AndroidTransferRecord
 import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingQrPayload
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val fallbackHosts = MutableStateFlow<List<DiscoveredDesktopHost>>(emptyList())
+    private val fallbackTransfers = MutableStateFlow<List<AndroidTransferRecord>>(emptyList())
     private val fallbackDiscovering = MutableStateFlow(false)
 
     private val serviceConnection = object : ServiceConnection {
@@ -76,11 +79,24 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    private val requestMediaPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    private val pickFilesLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            connectionService?.sendFiles(uris)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         requestNotificationPermissionIfNeeded()
+        requestMediaPermissionIfNeeded()
         startAndBindConnectionService()
 
         setContent {
@@ -92,6 +108,7 @@ class MainActivity : ComponentActivity() {
                     val service = connectionService
                     val connectionState by (service?.connectionState ?: fallbackConnectionState).collectAsState()
                     val discoveredHosts by (service?.discoveredHosts ?: fallbackHosts).collectAsState()
+                    val recentTransfers by (service?.recentTransfers ?: fallbackTransfers).collectAsState()
                     val isDiscovering by (service?.isDiscovering ?: fallbackDiscovering).collectAsState()
 
                     if (showQrScanner) {
@@ -106,6 +123,7 @@ class MainActivity : ComponentActivity() {
                         NexusLinkHomeScreen(
                             connectionState = connectionState,
                             discoveredHosts = discoveredHosts,
+                            recentTransfers = recentTransfers,
                             isDiscovering = isDiscovering,
                             isAccessibilityEnabled = isAccessibilityEnabled,
                             errorMessage = uiErrorMessage,
@@ -114,6 +132,10 @@ class MainActivity : ComponentActivity() {
                                 uiErrorMessage = null
                                 connectionService?.pairWithDiscoveredHost(host)
                             },
+                            onPickFilesToSend = {
+                                pickFilesLauncher.launch(arrayOf("*/*"))
+                            },
+                            onOpenFile = { transfer -> openTransferFile(transfer) },
                             onOpenAccessibilitySettings = {
                                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                             },
@@ -181,6 +203,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestMediaPermissionIfNeeded() {
+        val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+            requestMediaPermissionLauncher.launch(perm)
+        }
+    }
+
     private fun handlePairingPayload(rawJson: String) {
         try {
             val qrPayload = json.decodeFromString<PairingQrPayload>(rawJson.trim())
@@ -188,6 +221,23 @@ class MainActivity : ComponentActivity() {
             connectionService?.pairWithQrPayload(qrPayload)
         } catch (e: Exception) {
             uiErrorMessage = "QR Code ou JSON d'appairage invalide : ${e.localizedMessage}"
+        }
+    }
+
+    private fun openTransferFile(transfer: AndroidTransferRecord) {
+        val uri = transfer.fileUri ?: return
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, transfer.mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(intent, transfer.fileName))
+        } catch (_: Exception) {
+            Toast.makeText(
+                this,
+                "Aucune application disponible pour ouvrir ce fichier",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 }

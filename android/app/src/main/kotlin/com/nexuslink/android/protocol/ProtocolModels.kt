@@ -86,6 +86,18 @@ data class ClipboardSyncPayload(
 )
 
 /**
+ * Offre de téléchargement d'un fichier ou d'une image du presse-papiers via HTTP :52842
+ */
+@Serializable
+data class FileTransferOfferPayload(
+    val fileId: String,
+    val fileName: String,
+    val fileSize: Long,
+    val mimeType: String,
+    val purpose: String = "FILE"
+)
+
+/**
  * Représente un PC découvert sur le réseau local via mDNS (_nexuslink._tcp.)
  */
 data class DiscoveredDesktopHost(
