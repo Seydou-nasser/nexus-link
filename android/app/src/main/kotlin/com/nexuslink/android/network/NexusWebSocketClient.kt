@@ -9,6 +9,10 @@ import com.nexuslink.android.protocol.DeviceStatusPayload
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.FileTransferOfferPayload
 import com.nexuslink.android.protocol.FindMyPhonePayload
+import com.nexuslink.android.protocol.NotificationDismissPayload
+import com.nexuslink.android.protocol.NotificationPostedPayload
+import com.nexuslink.android.protocol.NotificationRemovedPayload
+import com.nexuslink.android.protocol.NotificationReplyPayload
 import com.nexuslink.android.protocol.PairingRequestPayload
 import com.nexuslink.android.protocol.PairingResponsePayload
 import com.nexuslink.android.protocol.WsEnvelope
@@ -50,7 +54,9 @@ class NexusWebSocketClient(
     private val statusProvider: () -> DeviceStatusPayload,
     private val onFindMyPhoneCommand: (String) -> Unit = {},
     private val onClipboardReceived: (String) -> Unit = {},
-    private val onFileOfferReceived: (FileTransferOfferPayload) -> Unit = {}
+    private val onFileOfferReceived: (FileTransferOfferPayload) -> Unit = {},
+    private val onNotificationReplyReceived: (String, String) -> Unit = { _, _ -> },
+    private val onNotificationDismissReceived: (String) -> Unit = {}
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -121,6 +127,15 @@ class NexusWebSocketClient(
     fun sendClipboard(content: String): Boolean {
         val payload = ClipboardSyncPayload(mimeType = "text/plain", content = content)
         return sendEnvelope("CLIPBOARD_SYNC", json.encodeToJsonElement(payload))
+    }
+
+    fun sendNotificationPosted(notification: NotificationPostedPayload): Boolean {
+        return sendEnvelope("NOTIFICATION_POSTED", json.encodeToJsonElement(notification))
+    }
+
+    fun sendNotificationRemoved(notificationKey: String): Boolean {
+        val payload = NotificationRemovedPayload(notificationKey = notificationKey)
+        return sendEnvelope("NOTIFICATION_REMOVED", json.encodeToJsonElement(payload))
     }
 
     private fun openSocket(peer: SavedDesktopPeer, manualVerificationCode: String?) {
@@ -264,6 +279,24 @@ class NexusWebSocketClient(
                     return
                 }
                 onFileOfferReceived(offer)
+            }
+            "NOTIFICATION_REPLY" -> {
+                val reply = try {
+                    json.decodeFromJsonElement<NotificationReplyPayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder NOTIFICATION_REPLY", e)
+                    return
+                }
+                onNotificationReplyReceived(reply.notificationKey, reply.replyText)
+            }
+            "NOTIFICATION_DISMISS" -> {
+                val dismiss = try {
+                    json.decodeFromJsonElement<NotificationDismissPayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder NOTIFICATION_DISMISS", e)
+                    return
+                }
+                onNotificationDismissReceived(dismiss.notificationKey)
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")

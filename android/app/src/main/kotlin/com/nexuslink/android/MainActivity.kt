@@ -30,6 +30,7 @@ import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.PairingQrPayload
 import com.nexuslink.android.service.ConnectionForegroundService
 import com.nexuslink.android.service.NexusAccessibilityService
+import com.nexuslink.android.service.NexusNotificationListenerService
 import com.nexuslink.android.ui.NexusLinkHomeScreen
 import com.nexuslink.android.ui.QrScannerView
 import com.nexuslink.android.ui.theme.NexusLinkTheme
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private var isBound = false
     private var showQrScanner by mutableStateOf(false)
     private var isAccessibilityEnabled by mutableStateOf(false)
+    private var isNotificationAccessEnabled by mutableStateOf(false)
     private var uiErrorMessage: String? by mutableStateOf(null)
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -126,6 +128,7 @@ class MainActivity : ComponentActivity() {
                             recentTransfers = recentTransfers,
                             isDiscovering = isDiscovering,
                             isAccessibilityEnabled = isAccessibilityEnabled,
+                            isNotificationAccessEnabled = isNotificationAccessEnabled,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
                             onSelectDiscoveredHost = { host ->
@@ -138,6 +141,9 @@ class MainActivity : ComponentActivity() {
                             onOpenFile = { transfer -> openTransferFile(transfer) },
                             onOpenAccessibilitySettings = {
                                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            },
+                            onOpenNotificationAccessSettings = {
+                                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                             },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
@@ -154,6 +160,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         isAccessibilityEnabled = NexusAccessibilityService.isServiceEnabled(this)
+        isNotificationAccessEnabled = NexusNotificationListenerService.isNotificationListenerEnabled(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

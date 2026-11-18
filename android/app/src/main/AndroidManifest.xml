@@ -24,6 +24,9 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Visibilité des applications installées pour afficher leur nom et icône dans les notifications -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -85,6 +88,16 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/nexus_accessibility_config" />
+        </service>
+
+        <service
+            android:name=".service.NexusNotificationListenerService"
+            android:exported="false"
+            android:label="NexusLink Notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
     </application>
 

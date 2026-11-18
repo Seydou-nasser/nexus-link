@@ -77,12 +77,14 @@ fun NexusLinkHomeScreen(
     recentTransfers: List<AndroidTransferRecord>,
     isDiscovering: Boolean,
     isAccessibilityEnabled: Boolean,
+    isNotificationAccessEnabled: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
     onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
     onPickFilesToSend: () -> Unit,
     onOpenFile: (AndroidTransferRecord) -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
+    onOpenNotificationAccessSettings: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -263,6 +265,22 @@ fun NexusLinkHomeScreen(
                         if (!isAccessibilityEnabled) onOpenAccessibilitySettings()
                     }
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                BottomNavigationTile(
+                    title = "Notifications sur le PC",
+                    subtitle = if (isNotificationAccessEnabled) {
+                        "Actif • Notifications et réponses synchronisées"
+                    } else {
+                        "Inactif • Appuyez pour autoriser"
+                    },
+                    iconType = QuickIconType.BELL,
+                    showChevron = !isNotificationAccessEnabled,
+                    onClick = {
+                        if (!isNotificationAccessEnabled) onOpenNotificationAccessSettings()
+                    }
+                )
             } else if (connectionState !is ConnectionState.WaitingApproval) {
                 // 3b. Ordinateurs à proximité (si non connecté)
                 Surface(
@@ -441,7 +459,7 @@ private fun HeroDesktopHeader(
     }
 }
 
-private enum class QuickIconType { SEND, CLIPBOARD, DISCONNECT, QR, FOLDER }
+private enum class QuickIconType { SEND, CLIPBOARD, DISCONNECT, QR, FOLDER, BELL }
 
 @Composable
 private fun QuickActionTile(
@@ -794,6 +812,17 @@ private fun MinimalVectorIcon(
                     style = stroke
                 )
                 drawLine(tint, Offset(w * 0.18f, h * 0.26f), Offset(w * 0.45f, h * 0.26f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+            QuickIconType.BELL -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(w * 0.22f, h * 0.18f),
+                    size = ComposeSize(w * 0.56f, h * 0.52f),
+                    cornerRadius = CornerRadius(w * 0.26f, w * 0.26f),
+                    style = stroke
+                )
+                drawLine(tint, Offset(w * 0.14f, h * 0.70f), Offset(w * 0.86f, h * 0.70f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawCircle(color = tint, radius = w * 0.08f, center = Offset(w * 0.50f, h * 0.82f))
             }
         }
     }

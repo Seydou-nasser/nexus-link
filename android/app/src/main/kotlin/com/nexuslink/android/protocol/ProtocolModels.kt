@@ -98,6 +98,46 @@ data class FileTransferOfferPayload(
 )
 
 /**
+ * Notification Android interceptée et envoyée vers le PC
+ */
+@Serializable
+data class NotificationPostedPayload(
+    val notificationKey: String,
+    val packageName: String,
+    val appName: String,
+    val title: String,
+    val text: String,
+    val canReply: Boolean,
+    val actions: List<String> = emptyList(),
+    val iconBase64: String? = null
+)
+
+/**
+ * Notification supprimée sur Android (à retirer du centre PC)
+ */
+@Serializable
+data class NotificationRemovedPayload(
+    val notificationKey: String
+)
+
+/**
+ * Réponse directe à une notification envoyée depuis le PC
+ */
+@Serializable
+data class NotificationReplyPayload(
+    val notificationKey: String,
+    val replyText: String
+)
+
+/**
+ * Demande de suppression d'une notification depuis le PC
+ */
+@Serializable
+data class NotificationDismissPayload(
+    val notificationKey: String
+)
+
+/**
  * Représente un PC découvert sur le réseau local via mDNS (_nexuslink._tcp.)
  */
 data class DiscoveredDesktopHost(

@@ -19,6 +19,7 @@ import com.nexuslink.android.network.FileTransferManager
 import com.nexuslink.android.network.NexusWebSocketClient
 import com.nexuslink.android.network.NsdDiscoveryManager
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
+import com.nexuslink.android.protocol.NotificationPostedPayload
 import com.nexuslink.android.protocol.PairingQrPayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -114,10 +115,27 @@ class ConnectionForegroundService : Service() {
             },
             onFileOfferReceived = { offer ->
                 fileTransferManager.handleIncomingOffer(offer)
+            },
+            onNotificationReplyReceived = { key, replyText ->
+                NexusNotificationListenerService.replyToNotification(key, replyText)
+            },
+            onNotificationDismissReceived = { key ->
+                NexusNotificationListenerService.dismissNotification(key)
             }
         )
 
         startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…", false))
+
+        serviceScope.launch {
+            var wasConnected = false
+            webSocketClient.connectionState.collect { state ->
+                val isNowConnected = state is ConnectionState.Connected
+                if (isNowConnected && !wasConnected) {
+                    NexusNotificationListenerService.syncActiveNotifications()
+                }
+                wasConnected = isNowConnected
+            }
+        }
 
         serviceScope.launch {
             combine(
@@ -300,6 +318,14 @@ class ConnectionForegroundService : Service() {
 
         fun sendFilesFromShare(uris: List<Uri>) {
             activeInstance?.get()?.sendFiles(uris)
+        }
+
+        fun sendNotificationPosted(notification: NotificationPostedPayload) {
+            activeInstance?.get()?.webSocketClient?.sendNotificationPosted(notification)
+        }
+
+        fun sendNotificationRemoved(notificationKey: String) {
+            activeInstance?.get()?.webSocketClient?.sendNotificationRemoved(notificationKey)
         }
     }
 }
