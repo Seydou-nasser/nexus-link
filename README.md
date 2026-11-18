@@ -4,14 +4,14 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
 
 ---
 
-## Fonctionnalités disponibles (Jalons 1 & 2)
+## Fonctionnalités disponibles (Jalons 1 à 4)
 
 - **Découverte automatique sur le réseau Wi-Fi local** (mDNS / Zeroconf) sans configuration manuelle.
 - **Deux modes d'association sécurisés** :
   - **Par QR Code** affiché sur l'application PC et scanné depuis l'appareil Android.
   - **En un clic depuis la liste « Ordinateurs à proximité »** sur Android, avec notification Windows et **code de vérification à 6 chiffres** affiché sur les deux écrans.
 - **Mémorisation locale & reconnexion automatique** : les appareils associés sont enregistrés localement (`paired_devices.json` côté PC et préférences Android) pour se reconnecter automatiquement après redémarrage.
-- **Déconnexion synchronisée bidirectionnelle** : la déconnexion depuis le téléphone ou depuis le PC réinitialise immédiatement la session sur les deux appareils.
+- **Déconnexion sécurisée et synchronisée** : confirmation explicite avant déconnexion côté PC comme côté Android, avec réinitialisation immédiate de la session sur les deux appareils.
 - **Application PC résidente en barre système (_System Tray_)** et **service persistant Android (_ForegroundService_)**.
 - **État du téléphone en temps réel & « Faire sonner »** : suivi en direct de la batterie, de la charge et du mode sonnerie, et déclenchement de la sonnerie à volume maximal depuis le PC (même en mode silencieux/vibreur).
 - **Presse-papiers bidirectionnel 100 % automatique (Texte & Captures d'écran)** :
@@ -20,21 +20,29 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
 - **Transfert rapide de fichiers & photos (`HTTP :52842`)** :
   - Envoi par glisser-déposer ou sélecteur natif depuis le PC, et via le sélecteur ou le menu système **« Envoyer vers mon PC (NexusLink) »** depuis Android.
   - Enregistrement automatique dans `Téléchargements\NexusLink` (PC) et `Downloads/NexusLink` (Android) avec miniatures et ouverture directe au clic.
+- **Centre de notifications Android ↔ PC** :
+  - Synchronisation en temps réel et récupération des notifications déjà actives à la connexion (`NotificationListenerService`).
+  - Affichage du nom réel et de l'icône de chaque application, pliage/dépliage des messages longs, fermeture synchronisée et **réponse directe** depuis le PC (`RemoteInput`).
+- **Passage fluide Souris & Clavier (`UDP :52841`, 120 Hz)** :
+  - Bascule naturelle au bord configuré de l'écran (`Gauche`, `Droite`, `Bas`) avec résistance anti-franchissement et maintien optionnel de `Ctrl`.
+  - Trames binaires de **16 octets** authentifiées par **HMAC-SHA256** tronqué (anti-rejeu par numéro de séquence).
+  - Curseur virtuel matériel en surimpression Android (`Choreographer` VSync), clics/glisser-déposer/molette (`dispatchGesture`), clic droit (`Retour`), clic milieu (`Accueil`), saisie clavier et retour instantané par le bord opposé ou `Échap`.
 
 ## Feuille de route
 
-- **Jalon 3** _(prochaine étape)_ : Synchronisation des notifications Android vers Windows avec réponse directe.
-- **Jalon 3** _(à venir)_ : Synchronisation des notifications Android vers Windows avec réponse directe.
-- **Jalon 4** _(à venir)_ : Passage fluide de la souris et du clavier du bord de l'écran du PC vers le téléphone (UDP basse latence).
-- **Jalon 5** _(à venir)_ : Recopie d'écran du téléphone sur le PC (_Screen Mirroring_).
+- **Jalon 1** _(terminé)_ : Découverte mDNS, appairage sécurisé QR / code 6 chiffres, reconnexion automatique et statut batterie/sonnerie.
+- **Jalon 2** _(terminé)_ : Presse-papiers bidirectionnel (texte & captures d'écran) et transfert rapide de fichiers via HTTP.
+- **Jalon 3** _(terminé)_ : Centre de notifications Android sur PC avec réponse directe et suppression synchronisée.
+- **Jalon 4** _(terminé)_ : Passage fluide souris/clavier au bord d'écran vers Android en UDP binaire 120 Hz.
+- **Jalon 5** _(prochaine étape)_ : Recopie d'écran du téléphone sur le PC (_Screen Mirroring_).
 
 ---
 
 ## Architecture & Technologies
 
-| Dossier    | Rôle                                       | Stack technique                                                                                             |
-| :--------- | :----------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
-| `desktop/` | Application PC (serveur local & interface) | **Tauri v2**, **Rust** (Tokio, `tokio-tungstenite`, `mdns-sd`), **React**, **TypeScript**, **Tailwind CSS** |
+| Dossier    | Rôle                                       | Stack technique                                                                                                             |
+| :--------- | :----------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
+| `desktop/` | Application PC (serveur local & interface) | **Tauri v2**, **Rust** (Tokio, `tokio-tungstenite`, `mdns-sd`, `hmac`/`sha2`, `windows-sys`), **React**, **TypeScript**, **Tailwind CSS** |
 | `android/` | Application mobile native                  | **Kotlin**, **Jetpack Compose** (Material 3), **OkHttp**, **NsdManager**, **CameraX** + **ML Kit**          |
 | `docs/`    | Spécification du protocole réseau          | [protocol-spec.md](docs/protocol-spec.md) (WebSocket JSON, UDP binaire 16 octets, HTTP streaming)           |
 
