@@ -141,20 +141,20 @@ flowchart LR
 ## Étape 4 — Jalon 3 : Synchronisation des notifications Android vers le PC
 
 ### 4.1. Interception et actions sur Android
-- [ ] **4.1.1. Service d'écoute (`service/NexusNotificationListenerService.kt`)** :
+- [x] **4.1.1. Service d'écoute (`service/NexusNotificationListenerService.kt`)** :
   - Hérite de `NotificationListenerService` (déclaré dans `AndroidManifest.xml` avec `BIND_NOTIFICATION_LISTENER_SERVICE`).
   - Dans `onNotificationPosted` : extrait le nom de l'application, le titre, le texte, l'icône compressée en Base64, et vérifie si une action contient un `RemoteInput` (réponse directe SMS, WhatsApp, Telegram, etc.). Envoie `NOTIFICATION_POSTED` au PC.
   - Dans `onNotificationRemoved` : envoie `NOTIFICATION_REMOVED` au PC.
-- [ ] **4.1.2. Exécution des réponses et suppressions à distance** :
+- [x] **4.1.2. Exécution des réponses et suppressions à distance** :
   - Conserve une table en mémoire des `PendingIntent` et `RemoteInput` indexée par `notificationKey`.
   - À la réception de `NOTIFICATION_REPLY` depuis le PC : injecte le texte de réponse dans le `RemoteInput` et déclenche le `PendingIntent` sur le téléphone.
   - À la réception de `NOTIFICATION_DISMISS` depuis le PC : appelle `cancelNotification(notificationKey)`.
 
 ### 4.2. Réception et centre de notifications sur le PC
-- [ ] **4.2.1. Gestionnaire de notifications Rust (`desktop/src-tauri/src/notifications.rs`)** :
+- [x] **4.2.1. Gestionnaire de notifications Rust (`desktop/src-tauri/src/notifications.rs`)** :
   - Stockage de la liste des notifications actives dans `NetworkState`, émission vers l'interface React et affichage d'une notification système Windows native.
   - Commandes Tauri `reply_to_notification` et `dismiss_notification` envoyant les ordres au téléphone via WebSocket.
-- [ ] **4.2.2. Panneau de notifications interactif dans l'interface PC** :
+- [x] **4.2.2. Panneau de notifications interactif dans l'interface PC** :
   - Affichage de la liste des notifications reçues avec icône, application, horodatage, bouton de fermeture et champ de saisie pour répondre directement depuis le PC.
 
 ---
