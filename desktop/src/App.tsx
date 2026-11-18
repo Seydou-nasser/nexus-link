@@ -48,8 +48,33 @@ function App() {
     try {
       const currentStatus = await invoke<ServerStatus>("get_server_status");
       setStatus(currentStatus);
+      if (currentStatus.inputSettings) {
+        setSelectedEdge(currentStatus.inputSettings.edge);
+        setEdgeResistanceMs(currentStatus.inputSettings.edgeResistanceMs);
+        setRequireCtrlKey(currentStatus.inputSettings.requireCtrl);
+      }
     } catch (error) {
       console.error("Erreur lors de la récupération du statut :", error);
+    }
+  };
+
+  const syncInputSettings = async (
+    edge: ScreenEdge,
+    resistanceMs: number,
+    requireCtrl: boolean
+  ) => {
+    try {
+      const updated = await invoke<ServerStatus>("update_input_settings", {
+        settings: {
+          enabled: true,
+          edge,
+          edgeResistanceMs: resistanceMs,
+          requireCtrl,
+        },
+      });
+      setStatus(updated);
+    } catch (error) {
+      console.error("Impossible de mettre à jour les paramètres d'entrée :", error);
     }
   };
 
@@ -445,7 +470,10 @@ function App() {
                   <div className="h-56 rounded-lg bg-[#0b0c10] border border-white/[0.06] flex items-center justify-center relative p-6">
                     <div className="flex items-center gap-6">
                       <button
-                        onClick={() => setSelectedEdge("LEFT")}
+                        onClick={() => {
+                          setSelectedEdge("LEFT");
+                          syncInputSettings("LEFT", edgeResistanceMs, requireCtrlKey);
+                        }}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                           selectedEdge === "LEFT"
                             ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
@@ -468,7 +496,10 @@ function App() {
                         </div>
 
                         <button
-                          onClick={() => setSelectedEdge("BOTTOM")}
+                          onClick={() => {
+                            setSelectedEdge("BOTTOM");
+                            syncInputSettings("BOTTOM", edgeResistanceMs, requireCtrlKey);
+                          }}
                           className={`w-28 h-10 rounded-lg border flex items-center justify-center gap-1.5 transition cursor-pointer ${
                             selectedEdge === "BOTTOM"
                               ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
@@ -481,7 +512,10 @@ function App() {
                       </div>
 
                       <button
-                        onClick={() => setSelectedEdge("RIGHT")}
+                        onClick={() => {
+                          setSelectedEdge("RIGHT");
+                          syncInputSettings("RIGHT", edgeResistanceMs, requireCtrlKey);
+                        }}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                           selectedEdge === "RIGHT"
                             ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
@@ -507,9 +541,11 @@ function App() {
                       </div>
                       <select
                         value={edgeResistanceMs}
-                        onChange={(e) =>
-                          setEdgeResistanceMs(Number(e.target.value))
-                        }
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setEdgeResistanceMs(val);
+                          syncInputSettings(selectedEdge, val, requireCtrlKey);
+                        }}
                         className="bg-[#161922] border border-white/[0.1] rounded px-2.5 py-1 text-[11px] text-zinc-200 outline-none"
                       >
                         <option value={0}>Aucune</option>
@@ -530,7 +566,11 @@ function App() {
                       <input
                         type="checkbox"
                         checked={requireCtrlKey}
-                        onChange={(e) => setRequireCtrlKey(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setRequireCtrlKey(checked);
+                          syncInputSettings(selectedEdge, edgeResistanceMs, checked);
+                        }}
                         className="w-4 h-4 accent-indigo-500 cursor-pointer"
                       />
                     </div>

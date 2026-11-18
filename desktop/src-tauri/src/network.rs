@@ -19,9 +19,10 @@ use uuid::Uuid;
 
 use crate::protocol::{
     ClipboardHistoryEntry, ClipboardSyncPayload, ConnectedDevice, DeviceStatusPayload,
-    FileTransferRecord, NotificationPostedPayload, NotificationRemovedPayload, PairedDeviceRecord,
-    PairingQrPayload, PairingRequestPayload, PairingResponsePayload, PendingPairingRequest,
-    PhoneNotificationRecord, ServerStatus, WsEnvelope,
+    FileTransferRecord, InputFocusStatePayload, InputSettings, NotificationPostedPayload,
+    NotificationRemovedPayload, PairedDeviceRecord, PairingQrPayload, PairingRequestPayload,
+    PairingResponsePayload, PendingPairingRequest, PhoneNotificationRecord, ServerStatus,
+    WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
@@ -58,6 +59,8 @@ pub struct NetworkState {
     pub outgoing_files: HashMap<String, OutgoingPayload>,
     pub file_transfers: Vec<FileTransferRecord>,
     pub notifications: Vec<PhoneNotificationRecord>,
+    pub input_active_target: String,
+    pub input_settings: InputSettings,
 }
 
 impl NetworkState {
@@ -92,6 +95,8 @@ impl NetworkState {
             outgoing_files: HashMap::new(),
             file_transfers: Vec::new(),
             notifications: Vec::new(),
+            input_active_target: "PC".to_string(),
+            input_settings: InputSettings::default(),
         }
     }
 
@@ -160,6 +165,18 @@ impl NetworkState {
             drop(tx);
         }
         self.connected_device = None;
+        self.input_active_target = "PC".to_string();
+        crate::input_hook::handle_remote_focus_state("PC");
+    }
+
+    /// Renvoie l'adresse IP, le port UDP et le secret de session du téléphone connecté
+    pub fn get_active_udp_target(&self) -> Option<(String, u16, String)> {
+        let device = self.connected_device.as_ref()?;
+        let secret = self
+            .paired_devices
+            .get(&device.device_id)
+            .map(|r| r.session_secret.clone())?;
+        Some((device.ip_address.clone(), self.udp_port, secret))
     }
 
     /// Construit l'état complet sérialisable avec le QR Code SVG à jour
@@ -192,6 +209,8 @@ impl NetworkState {
             ws_listening: self.ws_listening,
             connected_device: self.connected_device.clone(),
             pending_pairing: self.pending_pairing.clone(),
+            input_active_target: self.input_active_target.clone(),
+            input_settings: self.input_settings.clone(),
         }
     }
 }
@@ -385,6 +404,7 @@ async fn handle_ws_connection(
                                         let mut guard = state.lock().unwrap();
                                         guard.active_ws_tx = Some(out_tx.clone());
                                     }
+                                    crate::input_hook::sync_runtime_snapshot();
                                     emit_status_update(&state, &app_handle);
                                 } else {
                                     break;
@@ -440,6 +460,13 @@ async fn handle_ws_connection(
                                 );
                             }
                         }
+                        "INPUT_FOCUS_STATE" if is_authenticated => {
+                            if let Ok(focus) =
+                                serde_json::from_value::<InputFocusStatePayload>(envelope.payload)
+                            {
+                                crate::input_hook::handle_remote_focus_state(&focus.active_target);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -448,10 +475,12 @@ async fn handle_ws_connection(
     }
 
     if is_authenticated {
+        crate::input_hook::handle_remote_focus_state("PC");
         {
             let mut guard = state.lock().unwrap();
             guard.active_ws_tx = None;
             guard.connected_device = None;
+            guard.input_active_target = "PC".to_string();
         }
         crate::notifications::clear_notifications(&state, &app_handle);
         emit_status_update(&state, &app_handle);

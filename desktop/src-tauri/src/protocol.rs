@@ -69,6 +69,8 @@ pub struct ServerStatus {
     pub ws_listening: bool,
     pub connected_device: Option<ConnectedDevice>,
     pub pending_pairing: Option<PendingPairingRequest>,
+    pub input_active_target: String,
+    pub input_settings: InputSettings,
 }
 
 /// Enveloppe générique des messages JSON échangés sur le WebSocket
@@ -213,4 +215,36 @@ pub struct PhoneNotificationRecord {
     pub actions: Vec<String>,
     pub icon_base64: Option<String>,
     pub timestamp: String,
+}
+
+/// État du focus souris/clavier échangé sur le WebSocket (PC <-> Android)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputFocusStatePayload {
+    pub active_target: String,
+    #[serde(default)]
+    pub entry_edge: Option<String>,
+    #[serde(default)]
+    pub normalized_position: Option<f64>,
+}
+
+/// Configuration du basculement souris/clavier au bord de l'écran
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputSettings {
+    pub enabled: bool,
+    pub edge: String,
+    pub edge_resistance_ms: u64,
+    pub require_ctrl: bool,
+}
+
+impl Default for InputSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            edge: "RIGHT".to_string(),
+            edge_resistance_ms: 120,
+            require_ctrl: false,
+        }
+    }
 }

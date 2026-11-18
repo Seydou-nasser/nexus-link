@@ -1,9 +1,11 @@
 pub mod clipboard;
 pub mod file_server;
+pub mod input_hook;
 pub mod network;
 pub mod notifications;
 pub mod protocol;
 pub mod tray;
+pub mod udp_input;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -16,7 +18,7 @@ use crate::network::{
     start_mdns_advertisement, start_websocket_server, NetworkState,
 };
 use crate::protocol::{
-    ClipboardHistoryEntry, FileTransferRecord, PhoneNotificationRecord, ServerStatus,
+    ClipboardHistoryEntry, FileTransferRecord, InputSettings, PhoneNotificationRecord, ServerStatus,
 };
 
 /// Renvoie l'état actuel du serveur et le QR Code d'appairage à l'interface React
@@ -207,6 +209,23 @@ fn dismiss_notification(
     notifications::dismiss_notification(notification_key, &state, &app_handle)
 }
 
+/// Met à jour les paramètres de basculement souris/clavier au bord de l'écran
+#[tauri::command]
+fn update_input_settings(
+    settings: InputSettings,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> ServerStatus {
+    let status = {
+        let mut guard = state.lock().unwrap();
+        guard.input_settings = settings;
+        guard.to_server_status()
+    };
+    input_hook::sync_runtime_snapshot();
+    emit_status_update(&state, &app_handle);
+    status
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -266,6 +285,9 @@ pub fn run() {
                 file_server::start_http_file_server(http_state, http_app).await;
             });
 
+            // Démarre les hooks souris/clavier Windows pour le basculement au bord d'écran
+            input_hook::start_input_hook_monitor(Arc::clone(&shared_state), app_handle.clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -290,7 +312,8 @@ pub fn run() {
             open_local_file,
             get_notifications,
             reply_to_notification,
-            dismiss_notification
+            dismiss_notification,
+            update_input_settings
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");

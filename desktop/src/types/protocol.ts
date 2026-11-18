@@ -49,6 +49,13 @@ export interface FileTransferRecord {
   timestamp: string;
 }
 
+export interface InputSettings {
+  enabled: boolean;
+  edge: "LEFT" | "RIGHT" | "BOTTOM";
+  edgeResistanceMs: number;
+  requireCtrl: boolean;
+}
+
 export interface ServerStatus {
   deviceId: string;
   deviceName: string;
@@ -63,6 +70,8 @@ export interface ServerStatus {
   wsListening: boolean;
   connectedDevice: ConnectedDevice | null;
   pendingPairing: PendingPairingRequest | null;
+  inputActiveTarget: "PC" | "ANDROID";
+  inputSettings: InputSettings;
 }
 
 export interface ClipboardHistoryEntry {
