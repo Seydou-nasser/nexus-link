@@ -18,6 +18,7 @@ import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.network.FileTransferManager
 import com.nexuslink.android.network.NexusWebSocketClient
 import com.nexuslink.android.network.NsdDiscoveryManager
+import com.nexuslink.android.network.UdpInputReceiver
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.NotificationPostedPayload
 import com.nexuslink.android.protocol.PairingQrPayload
@@ -50,6 +51,7 @@ class ConnectionForegroundService : Service() {
     private lateinit var fileTransferManager: FileTransferManager
     private lateinit var screenshotObserver: ScreenshotObserver
     private lateinit var webSocketClient: NexusWebSocketClient
+    private lateinit var udpInputReceiver: UdpInputReceiver
 
     val connectionState: StateFlow<ConnectionState>
         get() = webSocketClient.connectionState
@@ -121,8 +123,26 @@ class ConnectionForegroundService : Service() {
             },
             onNotificationDismissReceived = { key ->
                 NexusNotificationListenerService.dismissNotification(key)
+            },
+            onInputFocusStateReceived = { focusState ->
+                if (focusState.activeTarget.equals("ANDROID", ignoreCase = true)) {
+                    NexusAccessibilityService.showRemoteCursor(
+                        focusState.entryEdge,
+                        focusState.normalizedPosition
+                    )
+                } else {
+                    NexusAccessibilityService.hideRemoteCursor()
+                }
             }
         )
+
+        udpInputReceiver = UdpInputReceiver(
+            sessionSecretProvider = { webSocketClient.activeSessionSecret() },
+            onEventReceived = { event ->
+                NexusAccessibilityService.dispatchUdpInput(event)
+            }
+        )
+        udpInputReceiver.start()
 
         startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…", false))
 
@@ -132,6 +152,8 @@ class ConnectionForegroundService : Service() {
                 val isNowConnected = state is ConnectionState.Connected
                 if (isNowConnected && !wasConnected) {
                     NexusNotificationListenerService.syncActiveNotifications()
+                } else if (!isNowConnected && wasConnected) {
+                    NexusAccessibilityService.hideRemoteCursor()
                 }
                 wasConnected = isNowConnected
             }
@@ -183,6 +205,8 @@ class ConnectionForegroundService : Service() {
     override fun onDestroy() {
         activeInstance = null
         ringPhoneController.stopRinging()
+        NexusAccessibilityService.hideRemoteCursor()
+        udpInputReceiver.stop()
         screenshotObserver.stop()
         deviceStatusMonitor.stop()
         nsdDiscoveryManager.stopDiscovery()
@@ -326,6 +350,10 @@ class ConnectionForegroundService : Service() {
 
         fun sendNotificationRemoved(notificationKey: String) {
             activeInstance?.get()?.webSocketClient?.sendNotificationRemoved(notificationKey)
+        }
+
+        fun notifyReturnFocusToPc() {
+            activeInstance?.get()?.webSocketClient?.sendInputFocusState("PC")
         }
     }
 }

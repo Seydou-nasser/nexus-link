@@ -12,6 +12,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import com.nexuslink.android.network.UdpInputEvent
+import java.lang.ref.WeakReference
 
 /**
  * Service d'accessibilité NexusLink :
@@ -24,6 +26,22 @@ class NexusAccessibilityService : AccessibilityService() {
     private var pendingCheckRunnable: Runnable? = null
     private var isProbing = false
     private var lastActivePackage: String? = null
+    private var cursorOverlayController: CursorOverlayController? = null
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        activeInstance = WeakReference(this)
+        cursorOverlayController = CursorOverlayController(this) {
+            ConnectionForegroundService.notifyReturnFocusToPc()
+        }
+    }
+
+    override fun onDestroy() {
+        cursorOverlayController?.deactivate()
+        cursorOverlayController = null
+        activeInstance = null
+        super.onDestroy()
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val evt = event ?: return
@@ -64,6 +82,7 @@ class NexusAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         pendingCheckRunnable?.let { mainHandler.removeCallbacks(it) }
+        cursorOverlayController?.deactivate()
     }
 
     private fun isKeyboardPackage(pkg: String): Boolean {
@@ -159,6 +178,26 @@ class NexusAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "NexusAccessibilitySvc"
+
+        @Volatile
+        private var activeInstance: WeakReference<NexusAccessibilityService>? = null
+
+        fun showRemoteCursor(entryEdge: String?, normalizedPosition: Double?) {
+            val svc = activeInstance?.get()
+            if (svc == null) {
+                Log.w(TAG, "Impossible d'afficher le curseur : service d'accessibilité non actif")
+                return
+            }
+            svc.cursorOverlayController?.activateFromPc(entryEdge, normalizedPosition)
+        }
+
+        fun hideRemoteCursor() {
+            activeInstance?.get()?.cursorOverlayController?.deactivate()
+        }
+
+        fun dispatchUdpInput(event: UdpInputEvent) {
+            activeInstance?.get()?.cursorOverlayController?.handleUdpEvent(event)
+        }
 
         fun isServiceEnabled(context: Context): Boolean {
             val expectedId = "${context.packageName}/${NexusAccessibilityService::class.java.canonicalName}"

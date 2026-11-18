@@ -138,6 +138,16 @@ data class NotificationDismissPayload(
 )
 
 /**
+ * État du focus souris/clavier échangé sur le WebSocket (PC <-> Android)
+ */
+@Serializable
+data class InputFocusStatePayload(
+    val activeTarget: String,
+    val entryEdge: String? = null,
+    val normalizedPosition: Double? = null
+)
+
+/**
  * Représente un PC découvert sur le réseau local via mDNS (_nexuslink._tcp.)
  */
 data class DiscoveredDesktopHost(

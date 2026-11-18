@@ -9,6 +9,7 @@ import com.nexuslink.android.protocol.DeviceStatusPayload
 import com.nexuslink.android.protocol.DiscoveredDesktopHost
 import com.nexuslink.android.protocol.FileTransferOfferPayload
 import com.nexuslink.android.protocol.FindMyPhonePayload
+import com.nexuslink.android.protocol.InputFocusStatePayload
 import com.nexuslink.android.protocol.NotificationDismissPayload
 import com.nexuslink.android.protocol.NotificationPostedPayload
 import com.nexuslink.android.protocol.NotificationRemovedPayload
@@ -56,7 +57,8 @@ class NexusWebSocketClient(
     private val onClipboardReceived: (String) -> Unit = {},
     private val onFileOfferReceived: (FileTransferOfferPayload) -> Unit = {},
     private val onNotificationReplyReceived: (String, String) -> Unit = { _, _ -> },
-    private val onNotificationDismissReceived: (String) -> Unit = {}
+    private val onNotificationDismissReceived: (String) -> Unit = {},
+    private val onInputFocusStateReceived: (InputFocusStatePayload) -> Unit = {}
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -136,6 +138,15 @@ class NexusWebSocketClient(
     fun sendNotificationRemoved(notificationKey: String): Boolean {
         val payload = NotificationRemovedPayload(notificationKey = notificationKey)
         return sendEnvelope("NOTIFICATION_REMOVED", json.encodeToJsonElement(payload))
+    }
+
+    fun sendInputFocusState(activeTarget: String): Boolean {
+        val payload = InputFocusStatePayload(activeTarget = activeTarget)
+        return sendEnvelope("INPUT_FOCUS_STATE", json.encodeToJsonElement(payload))
+    }
+
+    fun activeSessionSecret(): String? {
+        return currentPeer?.sessionSecret ?: pairingStore.getSavedDesktopPeer()?.sessionSecret
     }
 
     private fun openSocket(peer: SavedDesktopPeer, manualVerificationCode: String?) {
@@ -297,6 +308,15 @@ class NexusWebSocketClient(
                     return
                 }
                 onNotificationDismissReceived(dismiss.notificationKey)
+            }
+            "INPUT_FOCUS_STATE" -> {
+                val focusState = try {
+                    json.decodeFromJsonElement<InputFocusStatePayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder INPUT_FOCUS_STATE", e)
+                    return
+                }
+                onInputFocusStateReceived(focusState)
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")
