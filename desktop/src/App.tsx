@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   ArrowLeftRight,
   Bell,
   Clipboard,
   FileUp,
+  FolderOpen,
   Monitor,
   MonitorPlay,
   MousePointerClick,
@@ -18,7 +20,11 @@ import {
 import { Sidebar, type NavSectionId } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
-import type { ClipboardHistoryEntry, ServerStatus } from "./types/protocol";
+import type {
+  ClipboardHistoryEntry,
+  FileTransferRecord,
+  ServerStatus,
+} from "./types/protocol";
 import "./App.css";
 
 type ScreenEdge = "LEFT" | "RIGHT" | "BOTTOM";
@@ -32,6 +38,8 @@ function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
   const [isRingingPhone, setIsRingingPhone] = useState<boolean>(false);
   const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryEntry[]>([]);
+  const [fileTransfers, setFileTransfers] = useState<FileTransferRecord[]>([]);
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
   const fetchServerStatus = async () => {
     try {
@@ -91,6 +99,9 @@ function App() {
     invoke<ClipboardHistoryEntry[]>("get_clipboard_history")
       .then(setClipboardHistory)
       .catch(() => {});
+    invoke<FileTransferRecord[]>("get_file_transfers")
+      .then(setFileTransfers)
+      .catch(() => {});
 
     const unlistenPromise = listen<ServerStatus>(
       "nexus://state-updated",
@@ -106,6 +117,30 @@ function App() {
       "nexus://clipboard-updated",
       (event) => {
         setClipboardHistory(event.payload);
+      }
+    );
+
+    const unlistenFilesPromise = listen<FileTransferRecord[]>(
+      "nexus://files-updated",
+      (event) => {
+        setFileTransfers(event.payload);
+      }
+    );
+
+    const unlistenDragDropPromise = getCurrentWebview().onDragDropEvent(
+      (event) => {
+        if (event.payload.type === "over" || event.payload.type === "enter") {
+          setIsDraggingFile(true);
+        } else if (event.payload.type === "leave") {
+          setIsDraggingFile(false);
+        } else if (event.payload.type === "drop") {
+          setIsDraggingFile(false);
+          if (event.payload.paths.length > 0) {
+            invoke("send_files_to_phone", { paths: event.payload.paths }).catch(
+              (err) => console.error("Erreur lors de l'envoi :", err)
+            );
+          }
+        }
       }
     );
 
@@ -134,6 +169,8 @@ function App() {
       window.removeEventListener("keydown", handleKeyDown);
       unlistenPromise.then((unlisten) => unlisten());
       unlistenClipboardPromise.then((unlisten) => unlisten());
+      unlistenFilesPromise.then((unlisten) => unlisten());
+      unlistenDragDropPromise.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -513,15 +550,98 @@ function App() {
                   )}
                 </div>
 
-                {/* Zone Transfert de fichiers (Étape 3.3) */}
-                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-2">
-                  <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
-                    <FileUp className="w-4 h-4 text-indigo-400" />
-                    Transfert de fichiers
+                {/* Zone Transfert de fichiers */}
+                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
+                      <FileUp className="w-4 h-4 text-indigo-400" />
+                      Transfert de fichiers & photos
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => invoke("open_downloads_folder")}
+                        className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-[12px] text-zinc-200 flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
+                        Ouvrir le dossier
+                      </button>
+                      <button
+                        onClick={() => invoke("pick_and_send_files")}
+                        disabled={!connectedDevice}
+                        className="h-8 px-3.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 text-white text-[12px] font-medium transition cursor-pointer"
+                      >
+                        Choisir des fichiers
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-[12px] text-zinc-400">
-                    Le glisser-déposer de photos et documents vers votre téléphone sera disponible à l'étape suivante.
-                  </p>
+
+                  <div
+                    className={`rounded-xl border-2 border-dashed p-6 text-center transition ${
+                      isDraggingFile
+                        ? "border-indigo-400 bg-indigo-500/10 text-indigo-200"
+                        : "border-white/[0.1] bg-[#0b0c10] text-zinc-400"
+                    }`}
+                  >
+                    <p className="text-[13px]">
+                      {connectedDevice
+                        ? "Glissez-déposez des fichiers ou photos ici pour les envoyer directement sur votre téléphone."
+                        : "Connectez votre téléphone pour envoyer des fichiers."}
+                    </p>
+                  </div>
+
+                  {fileTransfers.length > 0 && (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {fileTransfers.map((item) => (
+                        <div
+                          key={item.fileId}
+                          onClick={() => {
+                            if (item.savedPath && item.status === "COMPLETED") {
+                              invoke("open_local_file", { path: item.savedPath });
+                            }
+                          }}
+                          className={`rounded-lg bg-[#0c0d12] border border-white/[0.06] px-3.5 py-2.5 flex items-center justify-between gap-3 ${
+                            item.savedPath && item.status === "COMPLETED"
+                              ? "hover:bg-white/[0.05] cursor-pointer transition"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {item.thumbnailBase64 ? (
+                              <img
+                                src={`data:image/jpeg;base64,${item.thumbnailBase64}`}
+                                alt={item.fileName}
+                                className="w-9 h-9 rounded-lg object-cover shrink-0 border border-white/[0.08]"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0">
+                                <FileUp className="w-4 h-4 text-zinc-400" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-[13px] text-zinc-200 truncate">
+                                {item.fileName}
+                              </div>
+                              <div className="text-[11px] text-zinc-500">
+                                {item.direction === "SENT" ? "Envoyé" : "Reçu"} •{" "}
+                                {formatFileSize(item.fileSize)}
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[11px] px-2 py-0.5 rounded border shrink-0 ${
+                              item.status === "COMPLETED"
+                                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
+                                : "bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+                            }`}
+                          >
+                            {item.status === "COMPLETED"
+                              ? "Terminé"
+                              : "En cours…"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -645,3 +765,9 @@ function App() {
 }
 
 export default App;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}

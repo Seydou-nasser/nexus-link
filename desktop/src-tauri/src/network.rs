@@ -19,13 +19,20 @@ use uuid::Uuid;
 
 use crate::protocol::{
     ClipboardHistoryEntry, ClipboardSyncPayload, ConnectedDevice, DeviceStatusPayload,
-    PairedDeviceRecord, PairingQrPayload, PairingRequestPayload, PairingResponsePayload,
-    PendingPairingRequest, ServerStatus, WsEnvelope,
+    FileTransferRecord, PairedDeviceRecord, PairingQrPayload, PairingRequestPayload,
+    PairingResponsePayload, PendingPairingRequest, ServerStatus, WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
 pub const DEFAULT_UDP_PORT: u16 = 52841;
 pub const DEFAULT_HTTP_PORT: u16 = 52842;
+
+/// Donnée sortante en attente de téléchargement par Android via HTTP :52842
+#[derive(Debug, Clone)]
+pub enum OutgoingPayload {
+    File(PathBuf),
+    MemoryBytes { bytes: Vec<u8>, mime_type: String },
+}
 
 /// État interne partagé du moteur réseau Rust
 pub struct NetworkState {
@@ -45,7 +52,10 @@ pub struct NetworkState {
     pub paired_devices: HashMap<String, PairedDeviceRecord>,
     pub storage_path: Option<PathBuf>,
     pub last_clipboard_text: Option<String>,
+    pub last_clipboard_image_hash: Option<u64>,
     pub clipboard_history: Vec<ClipboardHistoryEntry>,
+    pub outgoing_files: HashMap<String, OutgoingPayload>,
+    pub file_transfers: Vec<FileTransferRecord>,
 }
 
 impl NetworkState {
@@ -75,7 +85,10 @@ impl NetworkState {
             paired_devices: HashMap::new(),
             storage_path: None,
             last_clipboard_text: None,
+            last_clipboard_image_hash: None,
             clipboard_history: Vec::new(),
+            outgoing_files: HashMap::new(),
+            file_transfers: Vec::new(),
         }
     }
 

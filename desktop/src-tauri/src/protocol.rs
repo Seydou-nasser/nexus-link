@@ -136,3 +136,28 @@ pub struct ClipboardHistoryEntry {
     pub source: String,
     pub timestamp: String,
 }
+
+/// Offre de téléchargement d'un fichier ou d'une image du presse-papiers via HTTP :52842
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTransferOfferPayload {
+    pub file_id: String,
+    pub file_name: String,
+    pub file_size: u64,
+    pub mime_type: String,
+    pub purpose: String,
+}
+
+/// Enregistrement d'un transfert de fichier affiché dans l'interface PC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTransferRecord {
+    pub file_id: String,
+    pub file_name: String,
+    pub file_size: u64,
+    pub direction: String,
+    pub status: String,
+    pub saved_path: Option<String>,
+    pub thumbnail_base64: Option<String>,
+    pub timestamp: String,
+}

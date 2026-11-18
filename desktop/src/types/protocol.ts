@@ -26,6 +26,17 @@ export interface ClipboardHistoryEntry {
   timestamp: string;
 }
 
+export interface FileTransferRecord {
+  fileId: string;
+  fileName: string;
+  fileSize: number;
+  direction: "SENT" | "RECEIVED";
+  status: "PENDING" | "COMPLETED" | "FAILED";
+  savedPath: string | null;
+  thumbnailBase64: string | null;
+  timestamp: string;
+}
+
 export interface ServerStatus {
   deviceId: string;
   deviceName: string;
