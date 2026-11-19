@@ -6,6 +6,7 @@ pub mod media_gallery;
 pub mod network;
 pub mod notifications;
 pub mod protocol;
+pub mod sms;
 pub mod tray;
 pub mod udp_input;
 
@@ -603,6 +604,48 @@ async fn fs_pick_and_upload_files(
     Ok(uploaded)
 }
 
+/// Liste les conversations SMS récentes du téléphone connecté
+#[tauri::command]
+async fn sms_list_conversations(
+    limit: Option<usize>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<sms::SmsConversationDto>, String> {
+    let network = Arc::clone(state.inner());
+    sms::sms_list_conversations(&network, limit).await
+}
+
+/// Liste les messages d'un fil SMS donné
+#[tauri::command]
+async fn sms_list_messages(
+    thread_id: i64,
+    limit: Option<usize>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<sms::SmsMessageDto>, String> {
+    let network = Arc::clone(state.inner());
+    sms::sms_list_messages(&network, thread_id, limit).await
+}
+
+/// Recherche des contacts Android (nom ou numéro) pour démarrer un SMS
+#[tauri::command]
+async fn sms_search_contacts(
+    query: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<sms::SmsContactDto>, String> {
+    let network = Arc::clone(state.inner());
+    sms::sms_search_contacts(&network, query).await
+}
+
+/// Envoie un SMS depuis le téléphone Android connecté
+#[tauri::command]
+async fn sms_send(
+    address: String,
+    body: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<(), String> {
+    let network = Arc::clone(state.inner());
+    sms::sms_send(&network, address, body).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -720,7 +763,11 @@ pub fn run() {
             fs_copy_entry,
             fs_download_file,
             fs_upload_files,
-            fs_pick_and_upload_files
+            fs_pick_and_upload_files,
+            sms_list_conversations,
+            sms_list_messages,
+            sms_search_contacts,
+            sms_send
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
