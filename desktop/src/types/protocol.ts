@@ -150,3 +150,26 @@ export interface FsTransferProgressPayload {
   speedBytesPerSec: number;
   done: boolean;
 }
+
+export interface SmsConversationDto {
+  threadId: number;
+  address: string;
+  contactName: string;
+  snippet: string;
+  dateMs: number;
+  unreadCount: number;
+}
+
+export interface SmsMessageDto {
+  id: number;
+  threadId: number;
+  address: string;
+  body: string;
+  dateMs: number;
+  isOutgoing: boolean;
+}
+
+export interface SmsContactDto {
+  name: string;
+  phoneNumber: string;
+}

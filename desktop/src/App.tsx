@@ -7,6 +7,7 @@ import {
   FolderSync,
   HardDrive,
   Images,
+  MessageSquare,
   MoreHorizontal,
   MousePointerClick,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
   InputControlPanel,
   type ScreenEdge,
 } from "./components/InputControlPanel";
+import { MessagesPanel } from "./components/MessagesPanel";
 import { PairingPanel } from "./components/PairingPanel";
 import { PhoneSidebar } from "./components/PhoneSidebar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -34,6 +36,7 @@ import type {
 import "./App.css";
 
 type TopTabId =
+  | "messages"
   | "gallery"
   | "explorer"
   | "files"
@@ -312,14 +315,16 @@ function App() {
         event.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
       } else if (event.altKey && event.key === "1") {
-        setActiveTab("gallery");
+        setActiveTab("messages");
       } else if (event.altKey && event.key === "2") {
-        setActiveTab("explorer");
+        setActiveTab("gallery");
       } else if (event.altKey && event.key === "3") {
-        setActiveTab("files");
+        setActiveTab("explorer");
       } else if (event.altKey && event.key === "4") {
-        setActiveTab("clipboard");
+        setActiveTab("files");
       } else if (event.altKey && event.key === "5") {
+        setActiveTab("clipboard");
+      } else if (event.altKey && event.key === "6") {
         setActiveTab("input");
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
@@ -357,6 +362,7 @@ function App() {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
   }[] = [
+    { id: "messages", label: "Messages", icon: MessageSquare },
     { id: "gallery", label: "Galerie", icon: Images },
     { id: "explorer", label: "Explorateur", icon: HardDrive },
     { id: "files", label: "Transferts", icon: FolderSync },
@@ -457,6 +463,12 @@ function App() {
               />
             ) : (
               <>
+                {activeTab === "messages" && (
+                  <MessagesPanel
+                    deviceId={connectedDevice?.deviceId ?? null}
+                  />
+                )}
+
                 {activeTab === "gallery" && (
                   <GalleryPanel
                     httpPort={status.httpPort}
