@@ -13,7 +13,7 @@ use qrcode::QrCode;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
@@ -21,8 +21,8 @@ use crate::protocol::{
     ClipboardHistoryEntry, ClipboardSyncPayload, ConnectedDevice, DeviceStatusPayload,
     FileTransferRecord, InputFocusStatePayload, InputSettings, NotificationPostedPayload,
     NotificationRemovedPayload, PairedDeviceRecord, PairingQrPayload, PairingRequestPayload,
-    PairingResponsePayload, PendingPairingRequest, PhoneNotificationRecord, ServerStatus,
-    WsEnvelope,
+    PairingResponsePayload, PendingPairingRequest, PhoneNotificationRecord,
+    ScreenMirrorStatePayload, ServerStatus, WsEnvelope,
 };
 
 pub const DEFAULT_WS_PORT: u16 = 52840;
@@ -61,6 +61,11 @@ pub struct NetworkState {
     pub notifications: Vec<PhoneNotificationRecord>,
     pub input_active_target: String,
     pub input_settings: InputSettings,
+    pub mirror_state: String,
+    pub mirror_width: u32,
+    pub mirror_height: u32,
+    pub mirror_error: Option<String>,
+    pub screen_frame_tx: watch::Sender<Option<Arc<Vec<u8>>>>,
 }
 
 impl NetworkState {
@@ -72,6 +77,8 @@ impl NetworkState {
             .unwrap_or_else(|| "PC-NexusLink".to_string());
         let local_ips = detect_local_ipv4_addresses();
         let pairing_token = generate_hex_token();
+
+        let (screen_frame_tx, _) = watch::channel(None);
 
         Self {
             device_id,
@@ -97,6 +104,11 @@ impl NetworkState {
             notifications: Vec::new(),
             input_active_target: "PC".to_string(),
             input_settings: InputSettings::default(),
+            mirror_state: "STOPPED".to_string(),
+            mirror_width: 0,
+            mirror_height: 0,
+            mirror_error: None,
+            screen_frame_tx,
         }
     }
 
@@ -166,6 +178,11 @@ impl NetworkState {
         }
         self.connected_device = None;
         self.input_active_target = "PC".to_string();
+        self.mirror_state = "STOPPED".to_string();
+        self.mirror_width = 0;
+        self.mirror_height = 0;
+        self.mirror_error = None;
+        let _ = self.screen_frame_tx.send(None);
         crate::input_hook::handle_remote_focus_state("PC");
     }
 
@@ -211,6 +228,10 @@ impl NetworkState {
             pending_pairing: self.pending_pairing.clone(),
             input_active_target: self.input_active_target.clone(),
             input_settings: self.input_settings.clone(),
+            mirror_state: self.mirror_state.clone(),
+            mirror_width: self.mirror_width,
+            mirror_height: self.mirror_height,
+            mirror_error: self.mirror_error.clone(),
         }
     }
 }
@@ -467,6 +488,23 @@ async fn handle_ws_connection(
                                 crate::input_hook::handle_remote_focus_state(&focus.active_target);
                             }
                         }
+                        "SCREEN_MIRROR_STATE" if is_authenticated => {
+                            if let Ok(mirror) =
+                                serde_json::from_value::<ScreenMirrorStatePayload>(envelope.payload)
+                            {
+                                {
+                                    let mut guard = state.lock().unwrap();
+                                    guard.mirror_state = mirror.state.clone();
+                                    guard.mirror_width = mirror.width;
+                                    guard.mirror_height = mirror.height;
+                                    guard.mirror_error = mirror.error_message;
+                                    if mirror.state == "STOPPED" || mirror.state == "ERROR" {
+                                        let _ = guard.screen_frame_tx.send(None);
+                                    }
+                                }
+                                emit_status_update(&state, &app_handle);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -481,8 +519,16 @@ async fn handle_ws_connection(
             guard.active_ws_tx = None;
             guard.connected_device = None;
             guard.input_active_target = "PC".to_string();
+            guard.mirror_state = "STOPPED".to_string();
+            guard.mirror_width = 0;
+            guard.mirror_height = 0;
+            guard.mirror_error = None;
+            let _ = guard.screen_frame_tx.send(None);
         }
         crate::notifications::clear_notifications(&state, &app_handle);
+        if let Some(win) = app_handle.get_webview_window("mirror") {
+            let _ = win.close();
+        }
         emit_status_update(&state, &app_handle);
     }
 }

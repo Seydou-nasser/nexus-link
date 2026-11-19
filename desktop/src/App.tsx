@@ -17,6 +17,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { NotificationsPanel } from "./components/NotificationsPanel";
+import { ScreenMirrorPanel } from "./components/ScreenMirrorPanel";
 import { Sidebar, type NavSectionId } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
@@ -37,11 +38,16 @@ function App() {
   const [edgeResistanceMs, setEdgeResistanceMs] = useState<number>(120);
   const [requireCtrlKey, setRequireCtrlKey] = useState<boolean>(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
-  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState<boolean>(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] =
+    useState<boolean>(false);
   const [isRingingPhone, setIsRingingPhone] = useState<boolean>(false);
-  const [clipboardHistory, setClipboardHistory] = useState<ClipboardHistoryEntry[]>([]);
+  const [clipboardHistory, setClipboardHistory] = useState<
+    ClipboardHistoryEntry[]
+  >([]);
   const [fileTransfers, setFileTransfers] = useState<FileTransferRecord[]>([]);
-  const [notifications, setNotifications] = useState<PhoneNotificationRecord[]>([]);
+  const [notifications, setNotifications] = useState<PhoneNotificationRecord[]>(
+    [],
+  );
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
   const fetchServerStatus = async () => {
@@ -61,7 +67,7 @@ function App() {
   const syncInputSettings = async (
     edge: ScreenEdge,
     resistanceMs: number,
-    requireCtrl: boolean
+    requireCtrl: boolean,
   ) => {
     try {
       const updated = await invoke<ServerStatus>("update_input_settings", {
@@ -74,7 +80,10 @@ function App() {
       });
       setStatus(updated);
     } catch (error) {
-      console.error("Impossible de mettre à jour les paramètres d'entrée :", error);
+      console.error(
+        "Impossible de mettre à jour les paramètres d'entrée :",
+        error,
+      );
     }
   };
 
@@ -96,7 +105,10 @@ function App() {
     }
   };
 
-  const handleRespondToPairing = async (requestId: string, accepted: boolean) => {
+  const handleRespondToPairing = async (
+    requestId: string,
+    accepted: boolean,
+  ) => {
     try {
       const updated = await invoke<ServerStatus>("respond_to_pairing_request", {
         requestId,
@@ -124,7 +136,7 @@ function App() {
 
   const handleReplyNotification = async (
     notificationKey: string,
-    replyText: string
+    replyText: string,
   ): Promise<boolean> => {
     try {
       return await invoke<boolean>("reply_to_notification", {
@@ -142,6 +154,30 @@ function App() {
       await invoke<boolean>("dismiss_notification", { notificationKey });
     } catch (error) {
       console.error("Impossible de fermer la notification :", error);
+    }
+  };
+
+  const handleStartMirror = async () => {
+    try {
+      await invoke<boolean>("start_screen_mirror");
+    } catch (error) {
+      console.error("Impossible de démarrer la recopie d'écran :", error);
+    }
+  };
+
+  const handleStopMirror = async () => {
+    try {
+      await invoke<boolean>("stop_screen_mirror");
+    } catch (error) {
+      console.error("Impossible d'arrêter la recopie d'écran :", error);
+    }
+  };
+
+  const handleFocusMirrorWindow = async () => {
+    try {
+      await invoke("focus_mirror_window");
+    } catch (error) {
+      console.error("Impossible d'afficher la fenêtre miroir :", error);
     }
   };
 
@@ -164,28 +200,28 @@ function App() {
         if (!event.payload.connectedDevice) {
           setIsRingingPhone(false);
         }
-      }
+      },
     );
 
     const unlistenClipboardPromise = listen<ClipboardHistoryEntry[]>(
       "nexus://clipboard-updated",
       (event) => {
         setClipboardHistory(event.payload);
-      }
+      },
     );
 
     const unlistenFilesPromise = listen<FileTransferRecord[]>(
       "nexus://files-updated",
       (event) => {
         setFileTransfers(event.payload);
-      }
+      },
     );
 
     const unlistenNotificationsPromise = listen<PhoneNotificationRecord[]>(
       "nexus://notifications-updated",
       (event) => {
         setNotifications(event.payload);
-      }
+      },
     );
 
     const unlistenDragDropPromise = getCurrentWebview().onDragDropEvent(
@@ -198,11 +234,11 @@ function App() {
           setIsDraggingFile(false);
           if (event.payload.paths.length > 0) {
             invoke("send_files_to_phone", { paths: event.payload.paths }).catch(
-              (err) => console.error("Erreur lors de l'envoi :", err)
+              (err) => console.error("Erreur lors de l'envoi :", err),
             );
           }
         }
-      }
+      },
     );
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -386,10 +422,14 @@ function App() {
                         >
                           <Volume2
                             className={`w-3.5 h-3.5 ${
-                              isRingingPhone ? "text-amber-300 animate-pulse" : "text-indigo-400"
+                              isRingingPhone
+                                ? "text-amber-300 animate-pulse"
+                                : "text-indigo-400"
                             }`}
                           />
-                          {isRingingPhone ? "Arrêter la sonnerie" : "Faire sonner"}
+                          {isRingingPhone
+                            ? "Arrêter la sonnerie"
+                            : "Faire sonner"}
                         </button>
                         <button
                           onClick={() => setActiveSection("input")}
@@ -414,7 +454,8 @@ function App() {
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-400" />
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Glissez la souris vers votre téléphone pour le contrôler
+                          Glissez la souris vers votre téléphone pour le
+                          contrôler
                         </p>
                       </button>
 
@@ -472,7 +513,11 @@ function App() {
                       <button
                         onClick={() => {
                           setSelectedEdge("LEFT");
-                          syncInputSettings("LEFT", edgeResistanceMs, requireCtrlKey);
+                          syncInputSettings(
+                            "LEFT",
+                            edgeResistanceMs,
+                            requireCtrlKey,
+                          );
                         }}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                           selectedEdge === "LEFT"
@@ -498,7 +543,11 @@ function App() {
                         <button
                           onClick={() => {
                             setSelectedEdge("BOTTOM");
-                            syncInputSettings("BOTTOM", edgeResistanceMs, requireCtrlKey);
+                            syncInputSettings(
+                              "BOTTOM",
+                              edgeResistanceMs,
+                              requireCtrlKey,
+                            );
                           }}
                           className={`w-28 h-10 rounded-lg border flex items-center justify-center gap-1.5 transition cursor-pointer ${
                             selectedEdge === "BOTTOM"
@@ -514,7 +563,11 @@ function App() {
                       <button
                         onClick={() => {
                           setSelectedEdge("RIGHT");
-                          syncInputSettings("RIGHT", edgeResistanceMs, requireCtrlKey);
+                          syncInputSettings(
+                            "RIGHT",
+                            edgeResistanceMs,
+                            requireCtrlKey,
+                          );
                         }}
                         className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                           selectedEdge === "RIGHT"
@@ -569,7 +622,11 @@ function App() {
                         onChange={(e) => {
                           const checked = e.target.checked;
                           setRequireCtrlKey(checked);
-                          syncInputSettings(selectedEdge, edgeResistanceMs, checked);
+                          syncInputSettings(
+                            selectedEdge,
+                            edgeResistanceMs,
+                            checked,
+                          );
                         }}
                         className="w-4 h-4 accent-indigo-500 cursor-pointer"
                       />
@@ -620,7 +677,8 @@ function App() {
                     </div>
                   ) : (
                     <p className="text-[12px] text-zinc-500">
-                      Aucun texte synchronisé pour le moment. Copiez un texte avec Ctrl+C lorsque votre téléphone est connecté.
+                      Aucun texte synchronisé pour le moment. Copiez un texte
+                      avec Ctrl+C lorsque votre téléphone est connecté.
                     </p>
                   )}
                 </div>
@@ -671,7 +729,9 @@ function App() {
                           key={item.fileId}
                           onClick={() => {
                             if (item.savedPath && item.status === "COMPLETED") {
-                              invoke("open_local_file", { path: item.savedPath });
+                              invoke("open_local_file", {
+                                path: item.savedPath,
+                              });
                             }
                           }}
                           className={`rounded-lg bg-[#0c0d12] border border-white/[0.06] px-3.5 py-2.5 flex items-center justify-between gap-3 ${
@@ -697,8 +757,8 @@ function App() {
                                 {item.fileName}
                               </div>
                               <div className="text-[11px] text-zinc-500">
-                                {item.direction === "SENT" ? "Envoyé" : "Reçu"} •{" "}
-                                {formatFileSize(item.fileSize)}
+                                {item.direction === "SENT" ? "Envoyé" : "Reçu"}{" "}
+                                • {formatFileSize(item.fileSize)}
                               </div>
                             </div>
                           </div>
@@ -722,16 +782,12 @@ function App() {
             )}
 
             {activeSection === "mirror" && (
-              <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-6 max-w-3xl mx-auto space-y-2">
-                <div className="flex items-center gap-2 text-zinc-200 font-medium text-[13px]">
-                  <MonitorPlay className="w-4 h-4 text-indigo-400" />
-                  Écran du téléphone
-                </div>
-                <p className="text-[12px] text-zinc-400">
-                  Affichez l'écran de votre téléphone en direct dans cette
-                  fenêtre et contrôlez vos applications à la souris.
-                </p>
-              </div>
+              <ScreenMirrorPanel
+                status={status}
+                onStartMirror={handleStartMirror}
+                onStopMirror={handleStopMirror}
+                onFocusWindow={handleFocusMirrorWindow}
+              />
             )}
           </div>
         </main>
@@ -753,15 +809,16 @@ function App() {
                   Demande de connexion
                 </h3>
                 <p className="text-[13px] text-zinc-400">
-                  <strong>{status.pendingPairing.deviceName}</strong> souhaite se
-                  connecter à cet ordinateur.
+                  <strong>{status.pendingPairing.deviceName}</strong> souhaite
+                  se connecter à cet ordinateur.
                 </p>
               </div>
             </div>
 
             <div className="rounded-xl bg-[#0c0d12] border border-white/[0.08] p-4 text-center space-y-1.5">
               <div className="text-[12px] text-zinc-400">
-                Vérifiez que ce code correspond à celui affiché sur votre téléphone
+                Vérifiez que ce code correspond à celui affiché sur votre
+                téléphone
               </div>
               <div className="text-3xl font-bold tracking-[0.28em] font-mono-tabular text-indigo-300 py-1">
                 {status.pendingPairing.verificationCode}
@@ -771,7 +828,10 @@ function App() {
             <div className="flex items-center justify-end gap-2.5">
               <button
                 onClick={() =>
-                  handleRespondToPairing(status.pendingPairing!.requestId, false)
+                  handleRespondToPairing(
+                    status.pendingPairing!.requestId,
+                    false,
+                  )
                 }
                 className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-zinc-300 transition cursor-pointer"
               >

@@ -71,6 +71,10 @@ pub struct ServerStatus {
     pub pending_pairing: Option<PendingPairingRequest>,
     pub input_active_target: String,
     pub input_settings: InputSettings,
+    pub mirror_state: String,
+    pub mirror_width: u32,
+    pub mirror_height: u32,
+    pub mirror_error: Option<String>,
 }
 
 /// Enveloppe générique des messages JSON échangés sur le WebSocket
@@ -247,4 +251,24 @@ impl Default for InputSettings {
             require_ctrl: false,
         }
     }
+}
+
+/// Ordre de démarrage / arrêt de la recopie d'écran (PC -> Android)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenMirrorCommandPayload {
+    pub action: String,
+}
+
+/// État de la recopie d'écran renvoyé par Android (Android -> PC)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenMirrorStatePayload {
+    pub state: String,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub error_message: Option<String>,
 }

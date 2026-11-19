@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Path as AxumPath, State};
+use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -10,6 +10,7 @@ use axum::Router;
 use base64::Engine as _;
 use futures_util::StreamExt;
 use image::codecs::jpeg::JpegEncoder;
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncWriteExt;
@@ -52,6 +53,8 @@ pub async fn start_http_file_server(state: Arc<Mutex<NetworkState>>, app_handle:
     let app = Router::new()
         .route("/api/v1/files/upload", post(handle_upload))
         .route("/api/v1/files/download/{file_id}", get(handle_download))
+        .route("/api/v1/screen/frame", post(handle_screen_frame_upload))
+        .route("/api/v1/screen/stream", get(handle_screen_stream))
         // Autorise le streaming de gros fichiers sans limite par défaut d'Axum (2 Mo)
         .layer(DefaultBodyLimit::disable())
         .with_state(shared);
@@ -413,4 +416,85 @@ fn generate_image_thumbnail_base64(path: &Path) -> Option<String> {
     let mut encoder = JpegEncoder::new_with_quality(&mut out, 75);
     encoder.encode_image(&thumb).ok()?;
     Some(base64::engine::general_purpose::STANDARD.encode(out.into_inner()))
+}
+
+#[derive(Deserialize)]
+struct StreamQuery {
+    token: String,
+}
+
+/// Reçoit une frame JPEG envoyée par le téléphone pendant la recopie d'écran
+async fn handle_screen_frame_upload(
+    State(state): State<HttpServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    if !is_authorized(&headers, &state.network) {
+        return (StatusCode::UNAUTHORIZED, "Non autorisé").into_response();
+    }
+    if body.is_empty() || body.len() > 8 * 1024 * 1024 {
+        return (StatusCode::BAD_REQUEST, "Taille de frame invalide").into_response();
+    }
+
+    let sender = {
+        let guard = state.network.lock().unwrap();
+        guard.screen_frame_tx.clone()
+    };
+    let _ = sender.send(Some(Arc::new(body.to_vec())));
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Diffuse le flux vidéo MJPEG (multipart/x-mixed-replace) vers l'interface PC Tauri
+async fn handle_screen_stream(
+    State(state): State<HttpServerState>,
+    Query(query): Query<StreamQuery>,
+) -> Response {
+    let (valid_token, rx) = {
+        let guard = state.network.lock().unwrap();
+        (
+            query.token == guard.pairing_token,
+            guard.screen_frame_tx.subscribe(),
+        )
+    };
+
+    if !valid_token {
+        return (StatusCode::UNAUTHORIZED, "Jeton de flux invalide").into_response();
+    }
+
+    let stream = futures_util::stream::unfold((rx, true), |(mut rx, mut first)| async move {
+        loop {
+            let maybe_frame = if first {
+                first = false;
+                rx.borrow_and_update().clone()
+            } else {
+                if rx.changed().await.is_err() {
+                    return None;
+                }
+                rx.borrow_and_update().clone()
+            };
+
+            if let Some(frame) = maybe_frame {
+                let header = format!(
+                    "--nexusframe\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+                    frame.len()
+                );
+                let mut part = Vec::with_capacity(header.len() + frame.len() + 2);
+                part.extend_from_slice(header.as_bytes());
+                part.extend_from_slice(&frame);
+                part.extend_from_slice(b"\r\n");
+                return Some((Ok::<Bytes, std::io::Error>(Bytes::from(part)), (rx, false)));
+            }
+        }
+    });
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            "multipart/x-mixed-replace; boundary=nexusframe",
+        )
+        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }

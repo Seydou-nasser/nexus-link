@@ -58,6 +58,15 @@ body,
   border-radius: 9999px;
 }
 
+/* Curseur rond style point tactile pour la fenêtre de recopie d'écran */
+.cursor-touch {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='rgba(128,128,136,0.42)'/%3E%3Ccircle cx='12' cy='12' r='8' fill='rgba(48,48,54,0.88)'/%3E%3C/svg%3E") 12 12, pointer;
+}
+
+.cursor-touch:active {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='rgba(128,128,136,0.58)'/%3E%3Ccircle cx='12' cy='12' r='7.2' fill='rgba(36,36,42,0.95)'/%3E%3C/svg%3E") 12 12, pointer;
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.24);
 }

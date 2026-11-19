@@ -72,6 +72,10 @@ export interface ServerStatus {
   pendingPairing: PendingPairingRequest | null;
   inputActiveTarget: "PC" | "ANDROID";
   inputSettings: InputSettings;
+  mirrorState: "STOPPED" | "WAITING_PERMISSION" | "ACTIVE" | "ERROR";
+  mirrorWidth: number;
+  mirrorHeight: number;
+  mirrorError: string | null;
 }
 
 export interface ClipboardHistoryEntry {
