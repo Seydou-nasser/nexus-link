@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod file_explorer;
 pub mod file_server;
 pub mod input_hook;
 pub mod media_gallery;
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::network::{
@@ -426,6 +428,174 @@ async fn delete_media_on_phone(
     media_gallery::delete_media_on_phone(&network, media_id, &media_type).await
 }
 
+/// Renvoie l'espace de stockage Android et les raccourcis rapides de l'explorateur
+#[tauri::command]
+async fn fs_storage_info(
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsStorageInfoDto, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_storage_info(&network).await
+}
+
+/// Liste les dossiers et fichiers d'un répertoire Android
+#[tauri::command]
+async fn fs_list_dir(
+    path: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsListResponse, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_list_dir(&network, path).await
+}
+
+/// Recherche récursivement fichiers et dossiers sur Android à partir d'un répertoire
+#[tauri::command]
+async fn fs_search_entries(
+    path: String,
+    query: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<file_explorer::FsEntryDto>, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_search_entries(&network, path, query).await
+}
+
+/// Crée un sous-dossier dans le stockage Android
+#[tauri::command]
+async fn fs_create_dir(
+    parent_path: String,
+    name: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsEntryDto, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_create_dir(&network, parent_path, name).await
+}
+
+/// Renomme un fichier ou dossier sur Android
+#[tauri::command]
+async fn fs_rename_entry(
+    path: String,
+    new_name: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsEntryDto, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_rename_entry(&network, path, new_name).await
+}
+
+/// Supprime un fichier ou dossier sur Android
+#[tauri::command]
+async fn fs_delete_entry(
+    path: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<(), String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_delete_entry(&network, path).await
+}
+
+/// Déplace un fichier ou dossier vers un autre dossier Android
+#[tauri::command]
+async fn fs_move_entry(
+    source_path: String,
+    target_dir: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsEntryDto, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_move_entry(&network, source_path, target_dir).await
+}
+
+/// Copie un fichier ou dossier vers un autre dossier Android
+#[tauri::command]
+async fn fs_copy_entry(
+    source_path: String,
+    target_dir: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<file_explorer::FsEntryDto, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_copy_entry(&network, source_path, target_dir).await
+}
+
+/// Télécharge un fichier Android vers Téléchargements/NexusLink en streaming
+#[tauri::command]
+async fn fs_download_file(
+    path: String,
+    display_name: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<String, String> {
+    let network = Arc::clone(state.inner());
+    file_explorer::fs_download_file(&network, path, display_name).await
+}
+
+/// Envoie une notification Windows native uniquement si la fenêtre principale n'est pas visible/active
+fn notify_fs_upload_if_background(app_handle: &AppHandle, count: usize, target_dir: &str) {
+    if count == 0 {
+        return;
+    }
+    let is_foreground = app_handle
+        .get_webview_window("main")
+        .map(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
+        .unwrap_or(false);
+    if is_foreground {
+        return;
+    }
+
+    let destination = if target_dir.trim().is_empty() {
+        "Stockage interne"
+    } else {
+        target_dir
+    };
+    let body = if count > 1 {
+        format!("{} fichiers envoyés dans {}", count, destination)
+    } else {
+        format!("1 fichier envoyé dans {}", destination)
+    };
+    let _ = app_handle
+        .notification()
+        .builder()
+        .title("NexusLink — Envoi réussi")
+        .body(body)
+        .show();
+}
+
+/// Envoie une liste de chemins locaux PC directement dans un dossier Android
+#[tauri::command]
+async fn fs_upload_files(
+    target_dir: String,
+    paths: Vec<String>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> Result<usize, String> {
+    let network = Arc::clone(state.inner());
+    let local_paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let uploaded = file_explorer::fs_upload_files(&network, target_dir.clone(), local_paths).await?;
+    notify_fs_upload_if_background(&app_handle, uploaded, &target_dir);
+    Ok(uploaded)
+}
+
+/// Ouvre le sélecteur Windows et envoie les fichiers choisis dans le dossier Android courant
+#[tauri::command]
+async fn fs_pick_and_upload_files(
+    target_dir: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> Result<usize, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app_handle.dialog().file().pick_files(move |selected| {
+        let paths: Vec<PathBuf> = selected
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|fp| fp.into_path().ok())
+            .collect();
+        let _ = tx.send(paths);
+    });
+
+    let chosen = rx.await.unwrap_or_default();
+    if chosen.is_empty() {
+        return Ok(0);
+    }
+    let network = Arc::clone(state.inner());
+    let uploaded = file_explorer::fs_upload_files(&network, target_dir.clone(), chosen).await?;
+    notify_fs_upload_if_background(&app_handle, uploaded, &target_dir);
+    Ok(uploaded)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -532,7 +702,18 @@ pub fn run() {
             get_media_folders,
             get_media_items,
             download_media_to_pc,
-            delete_media_on_phone
+            delete_media_on_phone,
+            fs_storage_info,
+            fs_list_dir,
+            fs_search_entries,
+            fs_create_dir,
+            fs_rename_entry,
+            fs_delete_entry,
+            fs_move_entry,
+            fs_copy_entry,
+            fs_download_file,
+            fs_upload_files,
+            fs_pick_and_upload_files
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
