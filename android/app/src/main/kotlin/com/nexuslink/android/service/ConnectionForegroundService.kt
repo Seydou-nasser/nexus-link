@@ -6,15 +6,20 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.provider.Telephony
 import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
 import com.nexuslink.android.data.PairingStore
 import com.nexuslink.android.media.FileExplorerManager
 import com.nexuslink.android.media.MediaLibraryManager
+import com.nexuslink.android.media.SmsManagerBridge
 import com.nexuslink.android.network.AndroidTransferRecord
 import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.network.FileTransferManager
@@ -57,7 +62,15 @@ class ConnectionForegroundService : Service() {
     private lateinit var udpInputReceiver: UdpInputReceiver
     private lateinit var mediaLibraryManager: MediaLibraryManager
     private lateinit var fileExplorerManager: FileExplorerManager
+    private lateinit var smsManagerBridge: SmsManagerBridge
     private lateinit var mediaHttpServer: MediaHttpServer
+    private var smsObserver: ContentObserver? = null
+    private val smsNotifyHandler = Handler(Looper.getMainLooper())
+    private val smsNotifyRunnable = Runnable {
+        if (connectionState.value is ConnectionState.Connected) {
+            webSocketClient.sendSmsUpdated()
+        }
+    }
 
     val connectionState: StateFlow<ConnectionState>
         get() = webSocketClient.connectionState
@@ -158,13 +171,27 @@ class ConnectionForegroundService : Service() {
 
         mediaLibraryManager = MediaLibraryManager(this)
         fileExplorerManager = FileExplorerManager(this)
+        smsManagerBridge = SmsManagerBridge(this)
         mediaHttpServer = MediaHttpServer(
             context = this,
             mediaLibraryManager = mediaLibraryManager,
             fileExplorerManager = fileExplorerManager,
+            smsManagerBridge = smsManagerBridge,
             sessionSecretProvider = { webSocketClient.activeSessionSecret() }
         )
         mediaHttpServer.start()
+
+        val observer = object : ContentObserver(smsNotifyHandler) {
+            override fun onChange(selfChange: Boolean) {
+                smsNotifyHandler.removeCallbacks(smsNotifyRunnable)
+                smsNotifyHandler.postDelayed(smsNotifyRunnable, 400L)
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, observer)
+            smsObserver = observer
+        } catch (_: Exception) {
+        }
 
         startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…", false))
 
@@ -232,6 +259,14 @@ class ConnectionForegroundService : Service() {
         NexusAccessibilityService.hideRemoteCursor()
         ScreenMirrorService.stopMirroring(this)
         udpInputReceiver.stop()
+        smsObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Exception) {
+            }
+        }
+        smsObserver = null
+        smsNotifyHandler.removeCallbacks(smsNotifyRunnable)
         mediaHttpServer.shutdown()
         screenshotObserver.stop()
         deviceStatusMonitor.stop()

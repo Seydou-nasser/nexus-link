@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import okhttp3.OkHttpClient
@@ -141,6 +142,10 @@ class NexusWebSocketClient(
     fun sendNotificationRemoved(notificationKey: String): Boolean {
         val payload = NotificationRemovedPayload(notificationKey = notificationKey)
         return sendEnvelope("NOTIFICATION_REMOVED", json.encodeToJsonElement(payload))
+    }
+
+    fun sendSmsUpdated(): Boolean {
+        return sendEnvelope("SMS_UPDATED", JsonObject(emptyMap()))
     }
 
     fun sendInputFocusState(activeTarget: String): Boolean {

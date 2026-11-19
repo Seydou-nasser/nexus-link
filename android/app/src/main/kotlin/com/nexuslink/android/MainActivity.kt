@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private var isAccessibilityEnabled by mutableStateOf(false)
     private var isNotificationAccessEnabled by mutableStateOf(false)
     private var isAllFilesAccessEnabled by mutableStateOf(false)
+    private var isSmsPermissionsEnabled by mutableStateOf(false)
     private var uiErrorMessage: String? by mutableStateOf(null)
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -87,6 +88,12 @@ class MainActivity : ComponentActivity() {
     private val requestMediaPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> }
+
+    private val requestSmsPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        isSmsPermissionsEnabled = hasAllSmsPermissions()
+    }
 
     private val pickFilesLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -133,6 +140,7 @@ class MainActivity : ComponentActivity() {
                             isAccessibilityEnabled = isAccessibilityEnabled,
                             isNotificationAccessEnabled = isNotificationAccessEnabled,
                             isAllFilesAccessEnabled = isAllFilesAccessEnabled,
+                            isSmsPermissionsEnabled = isSmsPermissionsEnabled,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
                             onSelectDiscoveredHost = { host ->
@@ -151,6 +159,16 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenAllFilesAccessSettings = {
                                 openAllFilesAccessSettings()
+                            },
+                            onRequestSmsPermissions = {
+                                requestSmsPermissionsLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.READ_SMS,
+                                        Manifest.permission.SEND_SMS,
+                                        Manifest.permission.RECEIVE_SMS,
+                                        Manifest.permission.READ_CONTACTS
+                                    )
+                                )
                             },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
@@ -172,6 +190,18 @@ class MainActivity : ComponentActivity() {
             Environment.isExternalStorageManager()
         } else {
             true
+        }
+        isSmsPermissionsEnabled = hasAllSmsPermissions()
+    }
+
+    private fun hasAllSmsPermissions(): Boolean {
+        val perms = arrayOf(
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.READ_CONTACTS
+        )
+        return perms.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 

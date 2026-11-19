@@ -30,6 +30,15 @@
     <!-- Visibilité des applications installées pour afficher leur nom et icône dans les notifications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Lecture/envoi de SMS et résolution des noms de contacts pour l'onglet Messages PC -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

@@ -9,6 +9,9 @@ import com.nexuslink.android.media.FsOpResult
 import com.nexuslink.android.media.FsRenameRequest
 import com.nexuslink.android.media.FsTransferOpRequest
 import com.nexuslink.android.media.MediaLibraryManager
+import com.nexuslink.android.media.SmsManagerBridge
+import com.nexuslink.android.media.SmsOpResult
+import com.nexuslink.android.media.SmsSendRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,6 +46,7 @@ class MediaHttpServer(
     private val context: Context,
     private val mediaLibraryManager: MediaLibraryManager,
     private val fileExplorerManager: FileExplorerManager,
+    private val smsManagerBridge: SmsManagerBridge,
     private val sessionSecretProvider: () -> String?,
     private val port: Int = DEFAULT_MEDIA_HTTP_PORT
 ) {
@@ -159,6 +163,7 @@ class MediaHttpServer(
                     method == "POST" && path == "/fs/rename" -> handleFsRename(input, out, contentLength)
                     method == "POST" && path == "/fs/move" -> handleFsMove(input, out, contentLength)
                     method == "POST" && path == "/fs/copy" -> handleFsCopy(input, out, contentLength)
+                    method == "POST" && path == "/sms/send" -> handleSmsSend(input, out, contentLength)
                     method == "POST" -> writeSimpleResponse(out, 404, "Not Found", "Route POST introuvable")
 
                     path == "/media/folders" -> handleFolders(out, method == "HEAD")
@@ -170,6 +175,10 @@ class MediaHttpServer(
                     path == "/fs/list" -> handleFsList(out, queryParams, method == "HEAD")
                     path == "/fs/search" -> handleFsSearch(out, queryParams, method == "HEAD")
                     path == "/fs/download" -> handleFsDownload(out, queryParams, method == "HEAD")
+
+                    path == "/sms/conversations" -> handleSmsConversations(out, queryParams, method == "HEAD")
+                    path == "/sms/messages" -> handleSmsMessages(out, queryParams, method == "HEAD")
+                    path == "/sms/contacts" -> handleSmsContacts(out, queryParams, method == "HEAD")
 
                     else -> writeSimpleResponse(out, 404, "Not Found", "Route introuvable")
                 }
@@ -691,6 +700,102 @@ class MediaHttpServer(
         when (val result = fileExplorerManager.deleteEntry(path)) {
             is FsOpResult.Success -> writeSimpleResponse(out, 200, "OK", "Supprimé")
             is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleSmsConversations(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val limit = queryParams["limit"]?.toIntOrNull() ?: 60
+        when (val result = smsManagerBridge.listConversations(limit)) {
+            is SmsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is SmsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleSmsMessages(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val threadId = queryParams["threadId"]?.toLongOrNull() ?: -1L
+        val limit = queryParams["limit"]?.toIntOrNull() ?: 80
+        when (val result = smsManagerBridge.listMessages(threadId, limit)) {
+            is SmsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is SmsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleSmsContacts(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val query = queryParams["q"] ?: ""
+        when (val result = smsManagerBridge.searchContacts(query)) {
+            is SmsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is SmsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleSmsSend(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<SmsSendRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = smsManagerBridge.sendSms(req.address, req.body)) {
+            is SmsOpResult.Success -> writeSimpleResponse(out, 200, "OK", "Envoyé")
+            is SmsOpResult.Error -> {
                 writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
             }
         }

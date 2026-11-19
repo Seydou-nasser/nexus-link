@@ -81,6 +81,7 @@ fun NexusLinkHomeScreen(
     isAccessibilityEnabled: Boolean,
     isNotificationAccessEnabled: Boolean,
     isAllFilesAccessEnabled: Boolean,
+    isSmsPermissionsEnabled: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
     onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
@@ -89,6 +90,7 @@ fun NexusLinkHomeScreen(
     onOpenAccessibilitySettings: () -> Unit,
     onOpenNotificationAccessSettings: () -> Unit,
     onOpenAllFilesAccessSettings: () -> Unit,
+    onRequestSmsPermissions: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -330,6 +332,22 @@ fun NexusLinkHomeScreen(
                     showChevron = !isAllFilesAccessEnabled,
                     onClick = {
                         if (!isAllFilesAccessEnabled) onOpenAllFilesAccessSettings()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                BottomNavigationTile(
+                    title = "Messages SMS",
+                    subtitle = if (isSmsPermissionsEnabled) {
+                        "Actif • Lecture et envoi depuis le PC autorisés"
+                    } else {
+                        "Inactif • Appuyez pour autoriser SMS & Contacts"
+                    },
+                    iconType = QuickIconType.SEND,
+                    showChevron = !isSmsPermissionsEnabled,
+                    onClick = {
+                        if (!isSmsPermissionsEnabled) onRequestSmsPermissions()
                     }
                 )
             } else if (connectionState !is ConnectionState.WaitingApproval) {
