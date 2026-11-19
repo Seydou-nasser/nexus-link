@@ -4,7 +4,7 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
 
 ---
 
-## Fonctionnalités disponibles (Jalons 1 à 4)
+## Fonctionnalités disponibles (Jalons 1 à 5)
 
 - **Découverte automatique sur le réseau Wi-Fi local** (mDNS / Zeroconf) sans configuration manuelle.
 - **Deux modes d'association sécurisés** :
@@ -27,6 +27,9 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
   - Bascule naturelle au bord configuré de l'écran (`Gauche`, `Droite`, `Bas`) avec résistance anti-franchissement et maintien optionnel de `Ctrl`.
   - Trames binaires de **16 octets** authentifiées par **HMAC-SHA256** tronqué (anti-rejeu par numéro de séquence).
   - Curseur virtuel matériel en surimpression Android (`Choreographer` VSync), clics/glisser-déposer/molette (`dispatchGesture`), clic droit (`Retour`), clic milieu (`Accueil`), saisie clavier et retour instantané par le bord opposé ou `Échap`.
+- **Recopie d'écran du téléphone sur le PC (`MediaProjection` + MJPEG sur `HTTP :52842`)** :
+  - Ouverture dans une **fenêtre Windows dédiée et redimensionnable** (adaptée automatiquement à la taille de l'écran PC), avec barre compacte (*Retour Android*, menu `⋯` *Toujours au premier plan / Accueil / Actualiser*, réduire, agrandir, fermer).
+  - Contrôle direct à la souris (curseur tactile rond), clics courts, appuis longs, glisser-déposer en direct (`continueStroke`), molette et saisie clavier en coordonnées absolues UDP.
 
 ## Feuille de route
 
@@ -34,7 +37,8 @@ Alternative ultra-légère, rapide et **100 % locale** (sans dépendance au Clou
 - **Jalon 2** _(terminé)_ : Presse-papiers bidirectionnel (texte & captures d'écran) et transfert rapide de fichiers via HTTP.
 - **Jalon 3** _(terminé)_ : Centre de notifications Android sur PC avec réponse directe et suppression synchronisée.
 - **Jalon 4** _(terminé)_ : Passage fluide souris/clavier au bord d'écran vers Android en UDP binaire 120 Hz.
-- **Jalon 5** _(prochaine étape)_ : Recopie d'écran du téléphone sur le PC (_Screen Mirroring_).
+- **Jalon 5** _(terminé)_ : Recopie d'écran du téléphone en fenêtre séparée sur PC avec contrôle tactile en direct.
+- **Prochaines évolutions** : Abstraction transport modulaire (mode distant hors réseau local) et finition graphique Desktop.
 
 ---
 

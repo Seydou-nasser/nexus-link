@@ -185,9 +185,9 @@ flowchart LR
 
 ## Étape 6 — Jalon 5 : Recopie d'écran du téléphone sur le PC (Screen Mirroring)
 
-- [ ] **6.1. Capture et diffusion sur Android (`android/.../service/ScreenMirrorService.kt`)** :
+- [x] **6.1. Capture et diffusion sur Android (`android/.../service/ScreenMirrorService.kt`)** :
   - Demande de permission `MediaProjectionManager` et capture de l'écran dans un flux vidéo basse latence diffusé sur le canal HTTP/TCP (`:52842`).
-- [ ] **6.2. Lecteur de flux et contrôle direct dans l'application PC** :
+- [x] **6.2. Lecteur de flux et contrôle direct dans l'application PC** :
   - Affichage du flux vidéo de l'écran du téléphone dans l'onglet « Recopie d'écran » de Tauri et traduction directe des clics/mouvements de souris sur la vidéo en paquets UDP envoyés au téléphone.
 
 ---
