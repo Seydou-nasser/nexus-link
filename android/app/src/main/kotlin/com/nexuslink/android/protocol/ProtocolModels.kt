@@ -148,6 +148,25 @@ data class InputFocusStatePayload(
 )
 
 /**
+ * Commande de recopie d'écran envoyée par le PC (START / STOP)
+ */
+@Serializable
+data class ScreenMirrorCommandPayload(
+    val action: String
+)
+
+/**
+ * État de la recopie d'écran renvoyé vers le PC
+ */
+@Serializable
+data class ScreenMirrorStatePayload(
+    val state: String,
+    val width: Int = 0,
+    val height: Int = 0,
+    val errorMessage: String? = null
+)
+
+/**
  * Représente un PC découvert sur le réseau local via mDNS (_nexuslink._tcp.)
  */
 data class DiscoveredDesktopHost(

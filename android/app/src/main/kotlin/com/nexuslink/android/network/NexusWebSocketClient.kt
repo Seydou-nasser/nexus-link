@@ -16,6 +16,8 @@ import com.nexuslink.android.protocol.NotificationRemovedPayload
 import com.nexuslink.android.protocol.NotificationReplyPayload
 import com.nexuslink.android.protocol.PairingRequestPayload
 import com.nexuslink.android.protocol.PairingResponsePayload
+import com.nexuslink.android.protocol.ScreenMirrorCommandPayload
+import com.nexuslink.android.protocol.ScreenMirrorStatePayload
 import com.nexuslink.android.protocol.WsEnvelope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +60,8 @@ class NexusWebSocketClient(
     private val onFileOfferReceived: (FileTransferOfferPayload) -> Unit = {},
     private val onNotificationReplyReceived: (String, String) -> Unit = { _, _ -> },
     private val onNotificationDismissReceived: (String) -> Unit = {},
-    private val onInputFocusStateReceived: (InputFocusStatePayload) -> Unit = {}
+    private val onInputFocusStateReceived: (InputFocusStatePayload) -> Unit = {},
+    private val onScreenMirrorCommandReceived: (String) -> Unit = {}
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -145,8 +148,29 @@ class NexusWebSocketClient(
         return sendEnvelope("INPUT_FOCUS_STATE", json.encodeToJsonElement(payload))
     }
 
+    fun sendScreenMirrorState(
+        state: String,
+        width: Int = 0,
+        height: Int = 0,
+        errorMessage: String? = null
+    ): Boolean {
+        val payload = ScreenMirrorStatePayload(
+            state = state,
+            width = width,
+            height = height,
+            errorMessage = errorMessage
+        )
+        return sendEnvelope("SCREEN_MIRROR_STATE", json.encodeToJsonElement(payload))
+    }
+
     fun activeSessionSecret(): String? {
         return currentPeer?.sessionSecret ?: pairingStore.getSavedDesktopPeer()?.sessionSecret
+    }
+
+    fun activeHttpPeerInfo(): Triple<String, Int, String>? {
+        val peer = currentPeer ?: pairingStore.getSavedDesktopPeer() ?: return null
+        val secret = peer.sessionSecret ?: return null
+        return Triple(peer.hostAddress, peer.httpPort, secret)
     }
 
     private fun openSocket(peer: SavedDesktopPeer, manualVerificationCode: String?) {
@@ -317,6 +341,15 @@ class NexusWebSocketClient(
                     return
                 }
                 onInputFocusStateReceived(focusState)
+            }
+            "SCREEN_MIRROR_COMMAND" -> {
+                val cmd = try {
+                    json.decodeFromJsonElement<ScreenMirrorCommandPayload>(envelope.payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Impossible de décoder SCREEN_MIRROR_COMMAND", e)
+                    return
+                }
+                onScreenMirrorCommandReceived(cmd.action)
             }
             else -> {
                 Log.d(TAG, "Message reçu : ${envelope.messageType}")

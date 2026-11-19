@@ -133,6 +133,12 @@ class ConnectionForegroundService : Service() {
                 } else {
                     NexusAccessibilityService.hideRemoteCursor()
                 }
+            },
+            onScreenMirrorCommandReceived = { action ->
+                when (action) {
+                    "START" -> ScreenMirrorService.requestStart(this)
+                    "STOP" -> ScreenMirrorService.stopMirroring(this)
+                }
             }
         )
 
@@ -154,6 +160,7 @@ class ConnectionForegroundService : Service() {
                     NexusNotificationListenerService.syncActiveNotifications()
                 } else if (!isNowConnected && wasConnected) {
                     NexusAccessibilityService.hideRemoteCursor()
+                    ScreenMirrorService.stopMirroring(this@ConnectionForegroundService)
                 }
                 wasConnected = isNowConnected
             }
@@ -206,6 +213,7 @@ class ConnectionForegroundService : Service() {
         activeInstance = null
         ringPhoneController.stopRinging()
         NexusAccessibilityService.hideRemoteCursor()
+        ScreenMirrorService.stopMirroring(this)
         udpInputReceiver.stop()
         screenshotObserver.stop()
         deviceStatusMonitor.stop()
@@ -354,6 +362,24 @@ class ConnectionForegroundService : Service() {
 
         fun notifyReturnFocusToPc() {
             activeInstance?.get()?.webSocketClient?.sendInputFocusState("PC")
+        }
+
+        fun sendScreenMirrorState(
+            state: String,
+            width: Int = 0,
+            height: Int = 0,
+            errorMessage: String? = null
+        ) {
+            activeInstance?.get()?.webSocketClient?.sendScreenMirrorState(
+                state = state,
+                width = width,
+                height = height,
+                errorMessage = errorMessage
+            )
+        }
+
+        fun activeHttpPeerInfo(): Triple<String, Int, String>? {
+            return activeInstance?.get()?.webSocketClient?.activeHttpPeerInfo()
         }
     }
 }

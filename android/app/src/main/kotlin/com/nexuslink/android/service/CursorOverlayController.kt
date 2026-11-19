@@ -54,9 +54,24 @@ class CursorOverlayController(
     private val frameScheduled = AtomicBoolean(false)
 
     private var previousButtons = 0
-    private var dragStartX = 0f
-    private var dragStartY = 0f
     private var returnGraceUntilMs = 0L
+    @Volatile
+    private var mirrorInputActive = false
+
+    private var leftPressed = false
+    private var pressStartX = 0f
+    private var pressStartY = 0f
+    private var pressStartTimeMs = 0L
+    private var consecutiveReleasedMoves = 0
+    private var screenMetricsReady = false
+    private var holdPromoteRunnable: Runnable? = null
+    private var liveStrokeActive = false
+    private var strokeEverPromoted = false
+    private var activeStroke: GestureDescription.StrokeDescription? = null
+    private var strokeInFlight = false
+    private var pendingRelease = false
+    private var strokeLastX = 0f
+    private var strokeLastY = 0f
 
     private val frameCallback = Choreographer.FrameCallback {
         frameScheduled.set(false)
@@ -105,6 +120,7 @@ class CursorOverlayController(
 
         mainHandler.post {
             Choreographer.getInstance().removeFrameCallback(frameCallback)
+            forceReleaseLeftTouch()
             previousButtons = 0
             overlayContainer?.let { container ->
                 try {
@@ -118,9 +134,41 @@ class CursorOverlayController(
     }
 
     fun handleUdpEvent(event: UdpInputEvent) {
-        if (!isActive) return
+        val isAbsolute = (event.flags and FLAG_ABSOLUTE) != 0
+
+        if (!isActive && !isAbsolute && !mirrorInputActive) {
+            return
+        }
 
         if (event.eventType == UdpInputReceiver.EVENT_MOUSE_MOVE) {
+            if (isAbsolute) {
+                mainHandler.post {
+                    if (!screenMetricsReady) {
+                        refreshScreenMetrics()
+                    }
+                    mirrorInputActive = true
+                    cursorX = (event.dxOrCode.coerceIn(0, 10000) / 10000f) * screenWidth
+                    cursorY = (event.dyOrMods.coerceIn(0, 10000) / 10000f) * screenHeight
+                    if (isActive) {
+                        updatePointerTranslation()
+                    }
+                    if (leftPressed) {
+                        if ((event.buttonState and 0x01) == 0) {
+                            val elapsed = System.currentTimeMillis() - pressStartTimeMs
+                            if (elapsed > 500L && ++consecutiveReleasedMoves >= 5) {
+                                Log.w(TAG, "Relâchement auto après perte UDP détectée")
+                                previousButtons = event.buttonState
+                                handleLeftUp()
+                            }
+                        } else {
+                            consecutiveReleasedMoves = 0
+                            handleLeftMoveWhilePressed()
+                        }
+                    }
+                }
+                return
+            }
+
             pendingDx.addAndGet(event.dxOrCode)
             pendingDy.addAndGet(event.dyOrMods)
             if (frameScheduled.compareAndSet(false, true)) {
@@ -136,10 +184,20 @@ class CursorOverlayController(
         }
 
         mainHandler.post {
-            if (!isActive) return@post
-            // Applique d'abord tout déplacement en attente pour un clic précis au pixel près
-            applyPendingMouseDelta()
-            if (!isActive) return@post
+            if (isActive) {
+                // Applique d'abord tout déplacement en attente pour un clic précis au pixel près
+                applyPendingMouseDelta()
+                if (!isActive) return@post
+            } else if (!isAbsolute && !mirrorInputActive) {
+                return@post
+            }
+
+            if (isAbsolute) {
+                refreshScreenMetrics()
+                mirrorInputActive = true
+                cursorX = (event.dxOrCode.coerceIn(0, 10000) / 10000f) * screenWidth
+                cursorY = (event.dyOrMods.coerceIn(0, 10000) / 10000f) * screenHeight
+            }
 
             when (event.eventType) {
                 UdpInputReceiver.EVENT_MOUSE_BUTTON -> {
@@ -152,15 +210,9 @@ class CursorOverlayController(
                     val middleIsDown = (buttons and 0x04) != 0
 
                     if (!leftWasDown && leftIsDown) {
-                        dragStartX = cursorX
-                        dragStartY = cursorY
+                        handleLeftDown(cursorX, cursorY)
                     } else if (leftWasDown && !leftIsDown) {
-                        val distance = hypot(cursorX - dragStartX, cursorY - dragStartY)
-                        if (distance > 18f) {
-                            dispatchSwipe(dragStartX, dragStartY, cursorX, cursorY, 200L)
-                        } else {
-                            dispatchTap(cursorX, cursorY)
-                        }
+                        handleLeftUp()
                     }
 
                     if (!rightWasDown && rightIsDown) {
@@ -218,6 +270,9 @@ class CursorOverlayController(
         cursorX = nextX.coerceIn(0f, (screenWidth - 1f).coerceAtLeast(1f))
         cursorY = nextY.coerceIn(0f, (screenHeight - 1f).coerceAtLeast(1f))
         updatePointerTranslation()
+        if (leftPressed) {
+            handleLeftMoveWhilePressed()
+        }
     }
 
     private fun ensureOverlayAttached() {
@@ -270,11 +325,166 @@ class CursorOverlayController(
             screenWidth = metrics.widthPixels.toFloat().coerceAtLeast(1f)
             screenHeight = metrics.heightPixels.toFloat().coerceAtLeast(1f)
         }
+        screenMetricsReady = true
+    }
+
+    private fun handleLeftDown(x: Float, y: Float) {
+        cancelHoldPromotion()
+        leftPressed = true
+        liveStrokeActive = false
+        strokeEverPromoted = false
+        pendingRelease = false
+        pressStartX = x
+        pressStartY = y
+        pressStartTimeMs = System.currentTimeMillis()
+        consecutiveReleasedMoves = 0
+
+        val runnable = Runnable {
+            holdPromoteRunnable = null
+            if (leftPressed && !liveStrokeActive) {
+                promoteToLiveStroke()
+            }
+        }
+        holdPromoteRunnable = runnable
+        mainHandler.postDelayed(runnable, LONG_PRESS_PROMOTE_MS)
+    }
+
+    private fun handleLeftMoveWhilePressed() {
+        if (!leftPressed) return
+        if (!liveStrokeActive) {
+            val movedDist = hypot(cursorX - pressStartX, cursorY - pressStartY)
+            if (movedDist > DRAG_THRESHOLD_PX) {
+                cancelHoldPromotion()
+                promoteToLiveStroke()
+            }
+        } else {
+            pumpContinuousStroke()
+        }
+    }
+
+    private fun handleLeftUp() {
+        cancelHoldPromotion()
+        val wasPressed = leftPressed
+        val wasLive = liveStrokeActive
+        val wasPromoted = strokeEverPromoted
+        leftPressed = false
+
+        if (!wasPressed) {
+            return
+        }
+
+        if (!wasLive && !wasPromoted) {
+            // Clic simple court : geste natif en un coup (30 ms), jamais d'appui long
+            dispatchTap(cursorX, cursorY)
+        } else if (wasLive) {
+            pendingRelease = true
+            pumpContinuousStroke()
+        }
+    }
+
+    private fun forceReleaseLeftTouch() {
+        cancelHoldPromotion()
+        leftPressed = false
+        if (liveStrokeActive || activeStroke != null) {
+            pendingRelease = true
+            pumpContinuousStroke()
+        }
+    }
+
+    private fun cancelHoldPromotion() {
+        holdPromoteRunnable?.let { mainHandler.removeCallbacks(it) }
+        holdPromoteRunnable = null
+    }
+
+    private fun promoteToLiveStroke() {
+        liveStrokeActive = true
+        strokeEverPromoted = true
+        pendingRelease = false
+        val path = Path().apply {
+            moveTo(pressStartX, pressStartY)
+            lineTo(cursorX, cursorY)
+        }
+        strokeLastX = cursorX
+        strokeLastY = cursorY
+        val stroke = GestureDescription.StrokeDescription(path, 0L, LIVE_STROKE_STEP_MS, true)
+        dispatchContinuousStroke(stroke, willContinue = true)
+    }
+
+    private fun pumpContinuousStroke() {
+        if (strokeInFlight) return
+        val current = activeStroke ?: return
+
+        if (pendingRelease || !leftPressed) {
+            pendingRelease = false
+            liveStrokeActive = false
+            // Lève toujours le doigt strictement sur place sans suivre les mouvements post-relâchement
+            val endPath = Path().apply {
+                moveTo(strokeLastX, strokeLastY)
+                lineTo(strokeLastX, strokeLastY)
+            }
+            val endStroke = current.continueStroke(endPath, 0L, LIVE_RELEASE_STEP_MS, false)
+            dispatchContinuousStroke(endStroke, willContinue = false)
+            return
+        }
+
+        // Doigt immobile : rien à envoyer. Un trait envoyé avec willContinue=true laisse le doigt
+        // posé tout seul ; la chaîne reprendra au prochain déplacement ou au relâchement.
+        val moved = cursorX != strokeLastX || cursorY != strokeLastY
+        if (!moved) return
+
+        val path = Path().apply {
+            moveTo(strokeLastX, strokeLastY)
+            lineTo(cursorX, cursorY)
+        }
+        strokeLastX = cursorX
+        strokeLastY = cursorY
+
+        val nextStroke = current.continueStroke(path, 0L, LIVE_STROKE_STEP_MS, true)
+        dispatchContinuousStroke(nextStroke, willContinue = true)
+    }
+
+    private fun dispatchContinuousStroke(
+        stroke: GestureDescription.StrokeDescription,
+        willContinue: Boolean
+    ) {
+        activeStroke = if (willContinue) stroke else null
+        strokeInFlight = true
+        val dispatched = service.dispatchGesture(
+            GestureDescription.Builder().addStroke(stroke).build(),
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    strokeInFlight = false
+                    if (willContinue) {
+                        pumpContinuousStroke()
+                    } else {
+                        liveStrokeActive = false
+                    }
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    Log.w(TAG, "Geste continu annulé par Android (onCancelled)")
+                    strokeInFlight = false
+                    activeStroke = null
+                    liveStrokeActive = false
+                    leftPressed = false
+                    pendingRelease = false
+                }
+            },
+            null
+        )
+        if (!dispatched) {
+            Log.w(TAG, "dispatchGesture a renvoyé false pour le geste continu")
+            strokeInFlight = false
+            activeStroke = null
+            liveStrokeActive = false
+            leftPressed = false
+            pendingRelease = false
+        }
     }
 
     private fun dispatchTap(x: Float, y: Float) {
         val path = Path().apply { moveTo(x, y) }
-        val stroke = GestureDescription.StrokeDescription(path, 0L, 35L)
+        val stroke = GestureDescription.StrokeDescription(path, 0L, 30L)
         service.dispatchGesture(
             GestureDescription.Builder().addStroke(stroke).build(),
             null,
@@ -393,5 +603,10 @@ class CursorOverlayController(
         private const val TAG = "NexusCursorOverlay"
         private const val ENTRY_OFFSET_PX = 28f
         private const val RETURN_THRESHOLD_PX = 16f
+        private const val FLAG_ABSOLUTE = 0x01
+        private const val DRAG_THRESHOLD_PX = 10f
+        private const val LONG_PRESS_PROMOTE_MS = 260L
+        private const val LIVE_STROKE_STEP_MS = 35L
+        private const val LIVE_RELEASE_STEP_MS = 10L
     }
 }

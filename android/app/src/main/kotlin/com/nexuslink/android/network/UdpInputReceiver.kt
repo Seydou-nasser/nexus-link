@@ -30,7 +30,8 @@ class UdpInputReceiver(
     private val running = AtomicBoolean(false)
     private var socket: DatagramSocket? = null
     private var receiverThread: Thread? = null
-    private var lastSequence: Long = 0L
+    private var lastMoveSequence: Long = 0L
+    private var lastActionSequence: Long = 0L
     private var loggedFirstPacket = false
 
     fun start() {
@@ -75,11 +76,24 @@ class UdpInputReceiver(
                     val buttonState = bb.get().toInt() and 0xFF
                     val flags = bb.get().toInt() and 0xFF
 
-                    // Protection anti-rejeu (accepte redémarrage séquence == 1)
-                    if (sequence != 1L && sequence <= lastSequence && (lastSequence - sequence) < 10_000L) {
-                        continue
+                    // Protection anti-rejeu séparée (un MOVE ne peut jamais rejeter un clic/relâchement)
+                    if (eventType == EVENT_MOUSE_MOVE) {
+                        if (sequence != 1L && sequence <= lastMoveSequence && (lastMoveSequence - sequence) < 10_000L) {
+                            Log.w(TAG, "Paquet MOVE rejeté (rejeu) seq=$sequence dernier=$lastMoveSequence")
+                            continue
+                        }
+                        lastMoveSequence = sequence
+                    } else {
+                        if (sequence != 1L && sequence <= lastActionSequence && (lastActionSequence - sequence) < 10_000L) {
+                            Log.w(
+                                TAG,
+                                "Paquet ACTION rejeté (rejeu) type=$eventType seq=$sequence " +
+                                    "dernier=$lastActionSequence buttons=$buttonState"
+                            )
+                            continue
+                        }
+                        lastActionSequence = sequence
                     }
-                    lastSequence = sequence
 
                     onEventReceived(
                         UdpInputEvent(
@@ -112,7 +126,8 @@ class UdpInputReceiver(
         socket?.close()
         socket = null
         receiverThread = null
-        lastSequence = 0L
+        lastMoveSequence = 0L
+        lastActionSequence = 0L
     }
 
     private fun verifyAuthTag(frame: ByteArray, secret: String): Boolean {
