@@ -1,20 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --bg-mica: rgba(12, 13, 16, 0.88);
-  --bg-surface-0: #0c0d10;
-  --bg-surface-1: #111318;
-  --bg-surface-2: #161920;
-  --bg-surface-3: #1d2029;
-  --border-subtle: rgba(255, 255, 255, 0.065);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --text-primary: #f4f4f6;
-  --text-secondary: #9498a6;
-  --text-muted: #5e6270;
-  --accent-indigo: #6366f1;
+  --bg-mica: rgba(20, 23, 28, 0.92);
+  --bg-surface-0: #14171c;
+  --bg-surface-1: #1b2028;
+  --bg-surface-2: #232934;
+  --bg-surface-3: #2b3340;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --text-primary: #f2f5f8;
+  --text-secondary: #b0cadc;
+  --text-muted: #788896;
+  --accent-primary: #87cff9;
+  --accent-container: #005c7d;
+  --accent-secondary: #b0cadc;
   --accent-emerald: #10b981;
 
-  font-family: "Inter", "Segoe UI Variable Display", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Segoe UI Variable Display", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
   line-height: 1.45;
   color-scheme: dark;
