@@ -3,23 +3,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
-  ArrowLeftRight,
   Clipboard,
   FileUp,
   FolderOpen,
+  FolderSync,
+  Images,
   Monitor,
-  MonitorPlay,
+  MoreHorizontal,
   MousePointerClick,
   QrCode,
   RefreshCw,
+  Send,
+  Settings,
   Smartphone,
   Sparkles,
-  Volume2,
 } from "lucide-react";
-import { NotificationsPanel } from "./components/NotificationsPanel";
-import { ScreenMirrorPanel } from "./components/ScreenMirrorPanel";
-import { Sidebar, type NavSectionId } from "./components/Sidebar";
-import { StatusBar } from "./components/StatusBar";
+import { PhoneSidebar } from "./components/PhoneSidebar";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { TitleBar } from "./components/TitleBar";
 import type {
   ClipboardHistoryEntry,
@@ -30,10 +30,17 @@ import type {
 import "./App.css";
 
 type ScreenEdge = "LEFT" | "RIGHT" | "BOTTOM";
+type TopTabId = "gallery" | "files" | "clipboard" | "input" | "settings";
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
 
 function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
-  const [activeSection, setActiveSection] = useState<NavSectionId>("overview");
+  const [activeTab, setActiveTab] = useState<TopTabId>("files");
   const [selectedEdge, setSelectedEdge] = useState<ScreenEdge>("RIGHT");
   const [edgeResistanceMs, setEdgeResistanceMs] = useState<number>(120);
   const [requireCtrlKey, setRequireCtrlKey] = useState<boolean>(false);
@@ -44,6 +51,7 @@ function App() {
   const [clipboardHistory, setClipboardHistory] = useState<
     ClipboardHistoryEntry[]
   >([]);
+  const [clipboardDraft, setClipboardDraft] = useState<string>("");
   const [fileTransfers, setFileTransfers] = useState<FileTransferRecord[]>([]);
   const [notifications, setNotifications] = useState<PhoneNotificationRecord[]>(
     [],
@@ -157,27 +165,42 @@ function App() {
     }
   };
 
-  const handleStartMirror = async () => {
+  const handleDismissAllNotifications = async () => {
     try {
-      await invoke<boolean>("start_screen_mirror");
+      await invoke<number>("dismiss_all_notifications");
     } catch (error) {
-      console.error("Impossible de démarrer la recopie d'écran :", error);
+      console.error("Impossible d'effacer les notifications :", error);
     }
   };
 
-  const handleStopMirror = async () => {
+  const handleOpenMirror = async () => {
+    if (!status?.connectedDevice) return;
     try {
-      await invoke<boolean>("stop_screen_mirror");
+      if (
+        status.mirrorState === "ACTIVE" ||
+        status.mirrorState === "WAITING_PERMISSION"
+      ) {
+        await invoke("focus_mirror_window");
+      } else {
+        await invoke<boolean>("start_screen_mirror");
+      }
     } catch (error) {
-      console.error("Impossible d'arrêter la recopie d'écran :", error);
+      console.error("Impossible d'ouvrir l'écran du téléphone :", error);
     }
   };
 
-  const handleFocusMirrorWindow = async () => {
+  const handleSendClipboardDraft = async () => {
+    const trimmed = clipboardDraft.trim();
+    if (!trimmed) return;
     try {
-      await invoke("focus_mirror_window");
+      const ok = await invoke<boolean>("send_clipboard_to_phone", {
+        content: trimmed,
+      });
+      if (ok) {
+        setClipboardDraft("");
+      }
     } catch (error) {
-      console.error("Impossible d'afficher la fenêtre miroir :", error);
+      console.error("Impossible d'envoyer le texte :", error);
     }
   };
 
@@ -246,15 +269,13 @@ function App() {
         event.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
       } else if (event.altKey && event.key === "1") {
-        setActiveSection("overview");
+        setActiveTab("gallery");
       } else if (event.altKey && event.key === "2") {
-        setActiveSection("input");
+        setActiveTab("files");
       } else if (event.altKey && event.key === "3") {
-        setActiveSection("notifications");
+        setActiveTab("clipboard");
       } else if (event.altKey && event.key === "4") {
-        setActiveSection("files");
-      } else if (event.altKey && event.key === "5") {
-        setActiveSection("mirror");
+        setActiveTab("input");
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
         setDisconnectConfirmOpen(false);
@@ -275,9 +296,9 @@ function App() {
 
   if (!status) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#0c0d10] text-zinc-400 text-[12px]">
+      <div className="h-screen w-screen flex items-center justify-center bg-[#14171c] text-[#b0cadc] text-[12px]">
         <div className="flex items-center gap-2.5">
-          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+          <RefreshCw className="w-4 h-4 animate-spin text-[#87CFF9]" />
           <span>Démarrage de NexusLink…</span>
         </div>
       </div>
@@ -286,562 +307,651 @@ function App() {
 
   const connectedDevice = status.connectedDevice;
 
-  return (
-    <div className="h-screen w-screen flex flex-col bg-[#0c0d10]/90 text-zinc-100 overflow-hidden">
-      {/* 1. Barre de titre intégrée */}
-      <TitleBar
-        status={status}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-      />
+  const topTabs: {
+    id: TopTabId;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
+    { id: "gallery", label: "Galerie", icon: Images },
+    { id: "files", label: "Fichiers", icon: FolderSync },
+    { id: "clipboard", label: "Presse-papiers", icon: Clipboard },
+    { id: "input", label: "Souris & Clavier", icon: MousePointerClick },
+  ];
 
-      {/* 2. Corps de l'application : Sidebar + Zone centrale */}
+  return (
+    <div className="h-screen w-screen flex flex-col bg-[#14171c]/95 text-[#f2f5f8] overflow-hidden">
+      {/* 1. Barre de titre épurée */}
+      <TitleBar />
+
+      {/* 2. Corps principal : Colonne gauche permanente + Zone droite à onglets */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        <Sidebar
-          activeSection={activeSection}
-          onSelectSection={setActiveSection}
+        <PhoneSidebar
+          status={status}
           connectedDevice={connectedDevice}
-          onDisconnectDevice={() => setDisconnectConfirmOpen(true)}
-          notificationsCount={notifications.length}
+          notifications={notifications}
+          isRingingPhone={isRingingPhone}
+          onOpenMirror={handleOpenMirror}
+          onToggleRingPhone={handleToggleRingPhone}
+          onPickFiles={() => invoke("pick_and_send_files")}
+          onRequestDisconnect={() => setDisconnectConfirmOpen(true)}
+          onRefreshStatus={fetchServerStatus}
+          onReplyNotification={handleReplyNotification}
+          onDismissNotification={handleDismissNotification}
+          onDismissAllNotifications={handleDismissAllNotifications}
         />
 
-        {/* Zone de travail principale */}
-        <main className="flex-1 flex flex-col min-w-0 bg-[#0c0d10]/60">
-          {/* Barre d'outils supérieure */}
-          <div className="h-10 px-5 border-b border-white/[0.065] flex items-center justify-between shrink-0 bg-[#101217]/60">
-            <div className="flex items-center gap-2 text-[13px]">
-              <span className="text-zinc-400">NexusLink</span>
-              <span className="text-zinc-600">/</span>
-              <span className="font-medium text-zinc-100">
-                {activeSection === "overview" && "Mon téléphone"}
-                {activeSection === "input" && "Souris & Clavier"}
-                {activeSection === "notifications" && "Notifications"}
-                {activeSection === "files" && "Fichiers & Presse-papiers"}
-                {activeSection === "mirror" && "Écran du téléphone"}
-              </span>
+        {/* Zone principale à droite */}
+        <div className="flex-1 flex flex-col min-w-0 pr-2 pb-2">
+          {/* Barre d'onglets horizontaux (style Mobile connecté) */}
+          <nav className="h-11 px-2 flex items-center justify-between shrink-0 select-none">
+            <div className="flex items-center gap-1">
+              {topTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`relative h-9 px-3.5 rounded-lg flex items-center gap-2 text-[13px] transition cursor-pointer ${
+                      isActive
+                        ? "text-[#f2f5f8] font-medium bg-white/[0.06]"
+                        : "text-[#9cb1c2] hover:text-[#f2f5f8] hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <Icon
+                      className={`w-4 h-4 ${
+                        isActive ? "text-[#87CFF9]" : "text-[#788896]"
+                      }`}
+                    />
+                    <span>{tab.label}</span>
+                    {isActive && (
+                      <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-6 h-[2.5px] rounded-full bg-[#87CFF9]" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            {!connectedDevice && (
+            <div className="flex items-center gap-1">
               <button
-                onClick={handleRegenerateToken}
-                className="h-7 px-3 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center gap-1.5 text-[12px] text-zinc-300 transition cursor-pointer"
+                type="button"
+                onClick={() => setCommandPaletteOpen(true)}
+                title="Actions rapides (Ctrl+K)"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-[#9cb1c2] hover:text-[#f2f5f8] hover:bg-white/[0.06] transition cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-zinc-400" />
-                Actualiser le QR Code
+                <MoreHorizontal className="w-4 h-4" />
               </button>
-            )}
-          </div>
 
-          {/* Contenu du panneau actif */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {activeSection === "overview" && (
-              <div className="space-y-5 max-w-3xl mx-auto">
-                {!connectedDevice ? (
-                  <div className="rounded-xl bg-[#111319] border border-white/[0.07] overflow-hidden">
-                    <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between bg-[#14171f]/60">
-                      <div className="flex items-center gap-2">
-                        <QrCode className="w-4 h-4 text-indigo-400" />
-                        <span className="text-[13px] font-medium text-zinc-100">
-                          Associer votre téléphone Android
-                        </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveTab(activeTab === "settings" ? "files" : "settings")
+                }
+                title="Paramètres"
+                className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition cursor-pointer ${
+                  activeTab === "settings"
+                    ? "bg-white/[0.09] text-[#87CFF9]"
+                    : "text-[#9cb1c2] hover:text-[#f2f5f8] hover:bg-white/[0.06]"
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                {activeTab === "settings" && (
+                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-4 h-[2.5px] rounded-full bg-[#87CFF9]" />
+                )}
+              </button>
+            </div>
+          </nav>
+
+          {/* Grand panneau arrondi Fluent */}
+          <main className="flex-1 min-h-0 rounded-2xl bg-[#1b2028]/95 border border-white/[0.07] overflow-y-auto p-6">
+            {/* Si aucun appareil connecté (hors vue Paramètres) : écran d'association QR Code */}
+            {!connectedDevice && activeTab !== "settings" ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="w-full max-w-2xl rounded-2xl bg-[#232934]/80 border border-white/[0.08] p-6 space-y-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#005C7D]/70 border border-[#87CFF9]/30 flex items-center justify-center text-[#87CFF9]">
+                        <QrCode className="w-5 h-5" />
                       </div>
-                      <span className="text-[12px] text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20">
-                        Prêt pour l'association
-                      </span>
+                      <div>
+                        <h2 className="text-[15px] font-semibold text-[#f2f5f8]">
+                          Associer votre téléphone Android
+                        </h2>
+                        <p className="text-[12px] text-[#b0cadc]">
+                          Scannez ce QR Code ou sélectionnez{" "}
+                          <strong className="text-[#f2f5f8]">
+                            {status.deviceName}
+                          </strong>{" "}
+                          sur votre téléphone.
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-                      {/* QR Code */}
-                      <div className="md:col-span-5 flex flex-col items-center">
-                        <div className="p-3.5 rounded-xl bg-white shadow-inner border border-zinc-200">
-                          <div
-                            className="w-44 h-44 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
-                            dangerouslySetInnerHTML={{ __html: status.qrSvg }}
-                          />
-                        </div>
-                        <span className="mt-2.5 text-[12px] text-zinc-500">
-                          Connexion directe sans passer par Internet
+                    <button
+                      type="button"
+                      onClick={handleRegenerateToken}
+                      className="h-8 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] flex items-center gap-1.5 text-[12px] text-[#d6e4ee] transition cursor-pointer shrink-0"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-[#87CFF9]" />
+                      Actualiser
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 items-center">
+                    <div
+                      className="w-[220px] h-[220px] rounded-2xl bg-white p-3.5 flex items-center justify-center mx-auto shadow-xl"
+                      dangerouslySetInnerHTML={{ __html: status.qrSvg }}
+                    />
+
+                    <div className="space-y-3 text-[13px] text-[#c7d6e2]">
+                      <div className="flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-[#005C7D] text-[#87CFF9] text-[11px] font-semibold flex items-center justify-center shrink-0 mt-0.5">
+                          1
+                        </span>
+                        <span>
+                          Connectez votre téléphone au{" "}
+                          <strong className="text-[#f2f5f8]">
+                            même réseau Wi-Fi
+                          </strong>{" "}
+                          que cet ordinateur.
                         </span>
                       </div>
-
-                      {/* Instructions simples */}
-                      <div className="md:col-span-7 space-y-4">
-                        <div>
-                          <h2 className="text-[17px] font-semibold text-zinc-100">
-                            Connectez votre smartphone en un scan
-                          </h2>
-                          <p className="text-[13px] text-zinc-400 mt-1.5 leading-relaxed">
-                            Ouvrez l'application <strong>NexusLink</strong> sur
-                            votre téléphone Android et assurez-vous qu'il est
-                            connecté au même réseau Wi-Fi que cet ordinateur.
-                          </p>
-                        </div>
-
-                        <div className="rounded-lg bg-[#0c0d11] border border-white/[0.06] p-4 space-y-2 text-[13px] text-zinc-300">
-                          <div>1. Ouvrez NexusLink sur votre téléphone</div>
-                          <div>
-                            2. Appuyez sur <strong>Scanner le QR Code</strong>
-                          </div>
-                          <div>3. Visez ce code avec votre caméra</div>
-                        </div>
+                      <div className="flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-[#005C7D] text-[#87CFF9] text-[11px] font-semibold flex items-center justify-center shrink-0 mt-0.5">
+                          2
+                        </span>
+                        <span>
+                          Ouvrez{" "}
+                          <strong className="text-[#f2f5f8]">NexusLink</strong>{" "}
+                          sur Android et appuyez sur{" "}
+                          <strong className="text-[#f2f5f8]">
+                            Scanner QR
+                          </strong>{" "}
+                          ou choisissez ce PC dans la liste.
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-[#005C7D] text-[#87CFF9] text-[11px] font-semibold flex items-center justify-center shrink-0 mt-0.5">
+                          3
+                        </span>
+                        <span>
+                          Toutes vos données restent{" "}
+                          <strong className="text-[#87CFF9]">
+                            100 % en local
+                          </strong>{" "}
+                          sans aucun passage par Internet.
+                        </span>
                       </div>
                     </div>
                   </div>
-                ) : (
-                  /* Tableau de bord de l'appareil connecté */
-                  <div className="space-y-4">
-                    <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3.5">
-                        <div className="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-400">
-                          <Smartphone className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h2 className="text-[14px] font-semibold text-zinc-100">
-                              {connectedDevice.deviceName}
-                            </h2>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
-                              Connecté
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-zinc-400 mt-0.5">
-                            {connectedDevice.model} • Android{" "}
-                            {connectedDevice.androidVersion} • Batterie{" "}
-                            {connectedDevice.batteryLevel}%
-                          </div>
-                        </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Onglet Galerie (prêt pour l'Étape B) */}
+                {activeTab === "gallery" && (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="max-w-md text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-[#005C7D]/60 border border-[#87CFF9]/30 flex items-center justify-center text-[#87CFF9] mx-auto">
+                        <Images className="w-6 h-6" />
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={handleToggleRingPhone}
-                          className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 transition cursor-pointer ${
-                            isRingingPhone
-                              ? "bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/40 text-amber-200"
-                              : "bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.07] text-zinc-200"
-                          }`}
-                        >
-                          <Volume2
-                            className={`w-3.5 h-3.5 ${
-                              isRingingPhone
-                                ? "text-amber-300 animate-pulse"
-                                : "text-indigo-400"
-                            }`}
-                          />
-                          {isRingingPhone
-                            ? "Arrêter la sonnerie"
-                            : "Faire sonner"}
-                        </button>
-                        <button
-                          onClick={() => setActiveSection("input")}
-                          className="h-8 px-3 rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer"
-                        >
-                          <MousePointerClick className="w-3.5 h-3.5" />
-                          Position du téléphone
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Raccourcis vers les fonctionnalités */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        onClick={() => setActiveSection("input")}
-                        className="text-left rounded-xl bg-[#111319] hover:bg-[#151821] border border-white/[0.07] p-3.5 transition cursor-pointer space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] font-medium text-zinc-200">
-                            Souris & Clavier
-                          </span>
-                          <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-400" />
-                        </div>
-                        <p className="text-[11px] text-zinc-400">
-                          Glissez la souris vers votre téléphone pour le
-                          contrôler
-                        </p>
-                      </button>
-
-                      <button
-                        onClick={() => setActiveSection("files")}
-                        className="text-left rounded-xl bg-[#111319] hover:bg-[#151821] border border-white/[0.07] p-3.5 transition cursor-pointer space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] font-medium text-zinc-200">
-                            Presse-papiers & Fichiers
-                          </span>
-                          <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
-                        </div>
-                        <p className="text-[11px] text-zinc-400">
-                          Partagez textes, photos et fichiers en un instant
-                        </p>
-                      </button>
-
-                      <button
-                        onClick={() => setActiveSection("mirror")}
-                        className="text-left rounded-xl bg-[#111319] hover:bg-[#151821] border border-white/[0.07] p-3.5 transition cursor-pointer space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] font-medium text-zinc-200">
-                            Écran du téléphone
-                          </span>
-                          <MonitorPlay className="w-3.5 h-3.5 text-zinc-400" />
-                        </div>
-                        <p className="text-[11px] text-zinc-400">
-                          Affichez et utilisez votre téléphone sur votre PC
-                        </p>
-                      </button>
+                      <h2 className="text-[16px] font-semibold text-[#f2f5f8]">
+                        Galerie Photos &amp; Vidéos
+                      </h2>
+                      <p className="text-[13px] text-[#b0cadc]">
+                        Vos photos, vidéos et dossiers du téléphone (Appareil
+                        photo, Captures d&apos;écran, WhatsApp…) apparaîtront
+                        ici dès la Partie B.
+                      </p>
                     </div>
                   </div>
                 )}
-              </div>
-            )}
 
-            {activeSection === "input" && (
-              <div className="space-y-4 max-w-3xl mx-auto">
-                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-5">
-                  <div>
-                    <h2 className="text-[14px] font-semibold text-zinc-100">
-                      Position du téléphone par rapport à votre écran
-                    </h2>
-                    <p className="text-[12px] text-zinc-400 mt-0.5">
-                      Indiquez de quel côté est posé votre téléphone pour y
-                      faire glisser votre souris naturellement.
-                    </p>
-                  </div>
+                {/* Onglet Fichiers */}
+                {activeTab === "files" && (
+                  <div className="h-full flex flex-col gap-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+                      <div>
+                        <h2 className="text-[16px] font-semibold text-[#f2f5f8]">
+                          Transferts de fichiers
+                        </h2>
+                        <p className="text-[12px] text-[#b0cadc]">
+                          Envoyez et recevez des photos, vidéos ou documents
+                          instantanément sur le Wi-Fi local.
+                        </p>
+                      </div>
 
-                  {/* Schéma visuel interactif Moniteur PC + Téléphone */}
-                  <div className="h-56 rounded-lg bg-[#0b0c10] border border-white/[0.06] flex items-center justify-center relative p-6">
-                    <div className="flex items-center gap-6">
-                      <button
-                        onClick={() => {
-                          setSelectedEdge("LEFT");
-                          syncInputSettings(
-                            "LEFT",
-                            edgeResistanceMs,
-                            requireCtrlKey,
-                          );
-                        }}
-                        className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                          selectedEdge === "LEFT"
-                            ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                            : "bg-white/[0.02] border-dashed border-white/[0.12] text-zinc-500 hover:text-zinc-300"
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => invoke("open_downloads_folder")}
+                          className="h-8 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[12px] text-[#d6e4ee] flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5 text-[#87CFF9]" />
+                          Dossier reçu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => invoke("pick_and_send_files")}
+                          disabled={!connectedDevice}
+                          className="h-8 px-3.5 rounded-lg bg-[#005C7D] hover:bg-[#00719a] disabled:opacity-40 text-[#f2f5f8] text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <FileUp className="w-3.5 h-3.5 text-[#87CFF9]" />
+                          Envoyer des fichiers
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Zone glisser-déposer agrandie et cliquable */}
+                    <button
+                      type="button"
+                      onClick={() => invoke("pick_and_send_files")}
+                      disabled={!connectedDevice}
+                      className={`w-full min-h-[200px] shrink-0 rounded-2xl border-2 border-dashed px-6 py-10 flex flex-col items-center justify-center gap-3 text-center transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isDraggingFile
+                          ? "border-[#87CFF9] bg-[#005C7D]/25 text-[#f2f5f8] shadow-[0_0_24px_rgba(135,207,249,0.16)]"
+                          : "border-white/[0.12] bg-[#14171c]/65 hover:border-[#87CFF9]/50 hover:bg-[#14171c]/90 text-[#b0cadc]"
+                      }`}
+                    >
+                      <div
+                        className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition ${
+                          isDraggingFile
+                            ? "bg-[#005C7D]/70 border-[#87CFF9]/60 text-[#f2f5f8] scale-105"
+                            : "bg-[#005C7D]/40 border-[#87CFF9]/25 text-[#87CFF9]"
                         }`}
                       >
-                        <Smartphone className="w-4 h-4" />
-                        <span className="text-[10px]">Gauche</span>
-                      </button>
+                        <FileUp className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[14px] font-medium text-[#f2f5f8]">
+                          Glissez-déposez vos fichiers ici
+                        </p>
+                        <p className="text-[12.5px] text-[#b0cadc]">
+                          ou cliquez pour parcourir et envoyer vers{" "}
+                          <strong className="text-[#87CFF9]">
+                            {connectedDevice?.deviceName}
+                          </strong>
+                        </p>
+                      </div>
+                    </button>
 
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-56 h-32 rounded-lg bg-[#151822] border border-white/[0.14] flex flex-col items-center justify-center relative">
-                          <Monitor className="w-6 h-6 text-zinc-300 mb-1" />
-                          <span className="text-[12px] font-medium text-zinc-200">
-                            {status.deviceName}
+                    {/* Liste des transferts récents */}
+                    <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between shrink-0">
+                        <h3 className="text-[12px] font-semibold uppercase tracking-wider text-[#b0cadc]">
+                          Transferts récents
+                        </h3>
+                        {fileTransfers.length > 0 && (
+                          <span className="text-[11px] text-[#788896]">
+                            {fileTransfers.length} élément
+                            {fileTransfers.length > 1 ? "s" : ""}
                           </span>
-                          <span className="text-[10px] text-zinc-500">
-                            Écran de l'ordinateur
-                          </span>
+                        )}
+                      </div>
+
+                      {fileTransfers.length === 0 ? (
+                        <div className="flex-1 min-h-[140px] rounded-2xl bg-[#232934]/50 border border-white/[0.06] flex items-center justify-center p-8 text-center text-[13px] text-[#788896]">
+                          Aucun transfert récent pour le moment.
                         </div>
+                      ) : (
+                        <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pr-1">
+                          {fileTransfers.map((item) => {
+                            const canOpen = Boolean(
+                              item.savedPath && item.status === "COMPLETED",
+                            );
+                            return (
+                              <div
+                                key={item.fileId}
+                                onClick={() => {
+                                  if (canOpen && item.savedPath) {
+                                    invoke("open_local_file", {
+                                      path: item.savedPath,
+                                    });
+                                  }
+                                }}
+                                className={`rounded-xl bg-[#232934]/75 border border-white/[0.07] p-3 flex items-center justify-between gap-3 ${
+                                  canOpen
+                                    ? "hover:border-[#87CFF9]/40 hover:bg-[#232934] cursor-pointer transition"
+                                    : ""
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {item.thumbnailBase64 ? (
+                                    <img
+                                      src={`data:image/jpeg;base64,${item.thumbnailBase64}`}
+                                      alt={item.fileName}
+                                      className="w-11 h-11 rounded-lg object-cover shrink-0 border border-white/[0.1]"
+                                    />
+                                  ) : (
+                                    <div className="w-11 h-11 rounded-lg bg-[#005C7D]/40 border border-[#87CFF9]/20 flex items-center justify-center shrink-0">
+                                      <FileUp className="w-4 h-4 text-[#87CFF9]" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="text-[13px] font-medium text-[#f2f5f8] truncate">
+                                      {item.fileName}
+                                    </div>
+                                    <div className="text-[11px] text-[#788896]">
+                                      {item.direction === "SENT"
+                                        ? "Envoyé"
+                                        : "Reçu"}{" "}
+                                      • {formatFileSize(item.fileSize)} •{" "}
+                                      {item.timestamp.replace(" UTC", "")}
+                                    </div>
+                                  </div>
+                                </div>
 
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                                    item.status === "COMPLETED"
+                                      ? "bg-emerald-500/15 text-emerald-300"
+                                      : item.status === "FAILED"
+                                        ? "bg-rose-500/15 text-rose-300"
+                                        : "bg-[#005C7D]/60 text-[#87CFF9]"
+                                  }`}
+                                >
+                                  {item.status === "COMPLETED"
+                                    ? "Terminé"
+                                    : item.status === "FAILED"
+                                      ? "Échec"
+                                      : "En cours"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Onglet Presse-papiers */}
+                {activeTab === "clipboard" && (
+                  <div className="space-y-5 max-w-3xl mx-auto">
+                    <div>
+                      <h2 className="text-[16px] font-semibold text-[#f2f5f8]">
+                        Presse-papiers partagé
+                      </h2>
+                      <p className="text-[12px] text-[#b0cadc]">
+                        Tout texte ou capture d&apos;écran copié est synchronisé
+                        automatiquement entre votre PC et votre téléphone.
+                      </p>
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSendClipboardDraft();
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={clipboardDraft}
+                        onChange={(e) => setClipboardDraft(e.target.value)}
+                        placeholder="Envoyer un texte directement dans le presse-papiers du téléphone…"
+                        className="flex-1 h-9 px-3.5 rounded-lg bg-[#14171c] border border-white/[0.09] text-[12.5px] text-[#f2f5f8] placeholder:text-[#788896] focus:outline-none focus:border-[#87CFF9]/60"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!clipboardDraft.trim()}
+                        className="h-9 px-3.5 rounded-lg bg-[#005C7D] hover:bg-[#00719a] disabled:opacity-40 text-[#f2f5f8] text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5 text-[#87CFF9]" />
+                        Envoyer
+                      </button>
+                    </form>
+
+                    {clipboardHistory.length === 0 ? (
+                      <div className="rounded-xl bg-[#232934]/50 border border-white/[0.06] p-8 text-center text-[12px] text-[#788896]">
+                        Aucun élément synchronisé pour le moment. Essayez un
+                        Ctrl+C !
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {clipboardHistory.map((entry, idx) => (
+                          <div
+                            key={`${entry.timestamp}-${idx}`}
+                            className="rounded-xl bg-[#232934]/75 border border-white/[0.07] px-4 py-3 flex items-start justify-between gap-3"
+                          >
+                            <p className="text-[12.5px] text-[#f2f5f8] break-all whitespace-pre-wrap line-clamp-3">
+                              {entry.content}
+                            </p>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#005C7D]/60 text-[#87CFF9] font-medium">
+                                {entry.source}
+                              </span>
+                              <span className="text-[10px] font-mono-tabular text-[#788896]">
+                                {entry.timestamp.replace(" UTC", "")}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Onglet Souris & Clavier */}
+                {activeTab === "input" && (
+                  <div className="space-y-5 max-w-3xl mx-auto">
+                    <div>
+                      <h2 className="text-[16px] font-semibold text-[#f2f5f8]">
+                        Souris &amp; Clavier partagés
+                      </h2>
+                      <p className="text-[12px] text-[#b0cadc]">
+                        Indiquez de quel côté est posé votre téléphone pour y
+                        faire glisser naturellement votre souris (appuyez sur{" "}
+                        <kbd className="px-1.5 py-0.5 rounded bg-white/[0.08] text-[#87CFF9] text-[11px]">
+                          Échap
+                        </kbd>{" "}
+                        pour revenir immédiatement sur le PC).
+                      </p>
+                    </div>
+
+                    {/* Schéma visuel interactif */}
+                    <div className="h-56 rounded-2xl bg-[#14171c] border border-white/[0.07] flex items-center justify-center p-6">
+                      <div className="flex items-center gap-6">
                         <button
+                          type="button"
                           onClick={() => {
-                            setSelectedEdge("BOTTOM");
+                            setSelectedEdge("LEFT");
                             syncInputSettings(
-                              "BOTTOM",
+                              "LEFT",
                               edgeResistanceMs,
                               requireCtrlKey,
                             );
                           }}
-                          className={`w-28 h-10 rounded-lg border flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                            selectedEdge === "BOTTOM"
-                              ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                              : "bg-white/[0.02] border-dashed border-white/[0.12] text-zinc-500 hover:text-zinc-300"
+                          className={`w-14 h-28 rounded-xl border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                            selectedEdge === "LEFT"
+                              ? "bg-[#005C7D]/50 border-[#87CFF9] text-[#87CFF9] shadow-[0_0_20px_rgba(135,207,249,0.2)]"
+                              : "bg-white/[0.02] border-dashed border-white/[0.14] text-[#788896] hover:text-[#d6e4ee]"
                           }`}
                         >
-                          <Smartphone className="w-3.5 h-3.5" />
-                          <span className="text-[10px]">Bas</span>
+                          <Smartphone className="w-4 h-4" />
+                          <span className="text-[10px]">Gauche</span>
                         </button>
-                      </div>
 
-                      <button
-                        onClick={() => {
-                          setSelectedEdge("RIGHT");
-                          syncInputSettings(
-                            "RIGHT",
-                            edgeResistanceMs,
-                            requireCtrlKey,
-                          );
-                        }}
-                        className={`w-14 h-28 rounded-lg border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                          selectedEdge === "RIGHT"
-                            ? "bg-indigo-500/20 border-indigo-400 text-indigo-200 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                            : "bg-white/[0.02] border-dashed border-white/[0.12] text-zinc-500 hover:text-zinc-300"
-                        }`}
-                      >
-                        <Smartphone className="w-4 h-4" />
-                        <span className="text-[10px]">Droite</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Paramètres anti-franchissement accidentel */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                    <div className="rounded-lg bg-[#0d0f14] border border-white/[0.06] p-3.5 flex items-center justify-between">
-                      <div>
-                        <div className="text-[12px] font-medium text-zinc-200">
-                          Résistance au bord de l'écran
-                        </div>
-                        <div className="text-[11px] text-zinc-500">
-                          Évite de passer sur le téléphone par erreur
-                        </div>
-                      </div>
-                      <select
-                        value={edgeResistanceMs}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setEdgeResistanceMs(val);
-                          syncInputSettings(selectedEdge, val, requireCtrlKey);
-                        }}
-                        className="bg-[#161922] border border-white/[0.1] rounded px-2.5 py-1 text-[11px] text-zinc-200 outline-none"
-                      >
-                        <option value={0}>Aucune</option>
-                        <option value={120}>Douce</option>
-                        <option value={250}>Ferme</option>
-                      </select>
-                    </div>
-
-                    <div className="rounded-lg bg-[#0d0f14] border border-white/[0.06] p-3.5 flex items-center justify-between">
-                      <div>
-                        <div className="text-[12px] font-medium text-zinc-200">
-                          Maintenir la touche Ctrl
-                        </div>
-                        <div className="text-[11px] text-zinc-500">
-                          Passe sur le téléphone uniquement avec Ctrl
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={requireCtrlKey}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setRequireCtrlKey(checked);
-                          syncInputSettings(
-                            selectedEdge,
-                            edgeResistanceMs,
-                            checked,
-                          );
-                        }}
-                        className="w-4 h-4 accent-indigo-500 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeSection === "notifications" && (
-              <NotificationsPanel
-                notifications={notifications}
-                connectedDevice={connectedDevice}
-                onReply={handleReplyNotification}
-                onDismiss={handleDismissNotification}
-              />
-            )}
-
-            {activeSection === "files" && (
-              <div className="space-y-4 max-w-3xl mx-auto">
-                {/* Presse-papiers partagé */}
-                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
-                      <Clipboard className="w-4 h-4 text-emerald-400" />
-                      Presse-papiers partagé
-                    </div>
-                    <span className="text-[11px] text-zinc-400">
-                      Synchronisation automatique PC ↔ Téléphone
-                    </span>
-                  </div>
-
-                  {clipboardHistory.length > 0 ? (
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {clipboardHistory.map((entry, idx) => (
-                        <div
-                          key={`${entry.timestamp}-${idx}`}
-                          className="rounded-lg bg-[#0c0d12] border border-white/[0.06] px-3.5 py-2.5 flex items-start justify-between gap-3"
-                        >
-                          <p className="text-[12px] text-zinc-200 break-all line-clamp-2">
-                            {entry.content}
-                          </p>
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-white/[0.05] text-zinc-400 shrink-0">
-                            {entry.source}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[12px] text-zinc-500">
-                      Aucun texte synchronisé pour le moment. Copiez un texte
-                      avec Ctrl+C lorsque votre téléphone est connecté.
-                    </p>
-                  )}
-                </div>
-
-                {/* Zone Transfert de fichiers */}
-                <div className="rounded-xl bg-[#111319] border border-white/[0.07] p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-200 font-medium text-[14px]">
-                      <FileUp className="w-4 h-4 text-indigo-400" />
-                      Transfert de fichiers & photos
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => invoke("open_downloads_folder")}
-                        className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-[12px] text-zinc-200 flex items-center gap-1.5 transition cursor-pointer"
-                      >
-                        <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
-                        Ouvrir le dossier
-                      </button>
-                      <button
-                        onClick={() => invoke("pick_and_send_files")}
-                        disabled={!connectedDevice}
-                        className="h-8 px-3.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 text-white text-[12px] font-medium transition cursor-pointer"
-                      >
-                        Choisir des fichiers
-                      </button>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`rounded-xl border-2 border-dashed p-6 text-center transition ${
-                      isDraggingFile
-                        ? "border-indigo-400 bg-indigo-500/10 text-indigo-200"
-                        : "border-white/[0.1] bg-[#0b0c10] text-zinc-400"
-                    }`}
-                  >
-                    <p className="text-[13px]">
-                      {connectedDevice
-                        ? "Glissez-déposez des fichiers ou photos ici pour les envoyer directement sur votre téléphone."
-                        : "Connectez votre téléphone pour envoyer des fichiers."}
-                    </p>
-                  </div>
-
-                  {fileTransfers.length > 0 && (
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {fileTransfers.map((item) => (
-                        <div
-                          key={item.fileId}
-                          onClick={() => {
-                            if (item.savedPath && item.status === "COMPLETED") {
-                              invoke("open_local_file", {
-                                path: item.savedPath,
-                              });
-                            }
-                          }}
-                          className={`rounded-lg bg-[#0c0d12] border border-white/[0.06] px-3.5 py-2.5 flex items-center justify-between gap-3 ${
-                            item.savedPath && item.status === "COMPLETED"
-                              ? "hover:bg-white/[0.05] cursor-pointer transition"
-                              : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            {item.thumbnailBase64 ? (
-                              <img
-                                src={`data:image/jpeg;base64,${item.thumbnailBase64}`}
-                                alt={item.fileName}
-                                className="w-9 h-9 rounded-lg object-cover shrink-0 border border-white/[0.08]"
-                              />
-                            ) : (
-                              <div className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0">
-                                <FileUp className="w-4 h-4 text-zinc-400" />
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <div className="text-[13px] text-zinc-200 truncate">
-                                {item.fileName}
-                              </div>
-                              <div className="text-[11px] text-zinc-500">
-                                {item.direction === "SENT" ? "Envoyé" : "Reçu"}{" "}
-                                • {formatFileSize(item.fileSize)}
-                              </div>
-                            </div>
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-56 h-32 rounded-xl bg-[#232934] border border-white/[0.14] flex flex-col items-center justify-center">
+                            <Monitor className="w-6 h-6 text-[#87CFF9] mb-1" />
+                            <span className="text-[12px] font-medium text-[#f2f5f8]">
+                              {status.deviceName}
+                            </span>
+                            <span className="text-[10px] text-[#788896]">
+                              Écran de l&apos;ordinateur
+                            </span>
                           </div>
-                          <span
-                            className={`text-[11px] px-2 py-0.5 rounded border shrink-0 ${
-                              item.status === "COMPLETED"
-                                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
-                                : "bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedEdge("BOTTOM");
+                              syncInputSettings(
+                                "BOTTOM",
+                                edgeResistanceMs,
+                                requireCtrlKey,
+                              );
+                            }}
+                            className={`w-28 h-10 rounded-xl border flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                              selectedEdge === "BOTTOM"
+                                ? "bg-[#005C7D]/50 border-[#87CFF9] text-[#87CFF9] shadow-[0_0_20px_rgba(135,207,249,0.2)]"
+                                : "bg-white/[0.02] border-dashed border-white/[0.14] text-[#788896] hover:text-[#d6e4ee]"
                             }`}
                           >
-                            {item.status === "COMPLETED"
-                              ? "Terminé"
-                              : "En cours…"}
-                          </span>
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span className="text-[10px]">Bas</span>
+                          </button>
                         </div>
-                      ))}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedEdge("RIGHT");
+                            syncInputSettings(
+                              "RIGHT",
+                              edgeResistanceMs,
+                              requireCtrlKey,
+                            );
+                          }}
+                          className={`w-14 h-28 rounded-xl border flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                            selectedEdge === "RIGHT"
+                              ? "bg-[#005C7D]/50 border-[#87CFF9] text-[#87CFF9] shadow-[0_0_20px_rgba(135,207,249,0.2)]"
+                              : "bg-white/[0.02] border-dashed border-white/[0.14] text-[#788896] hover:text-[#d6e4ee]"
+                          }`}
+                        >
+                          <Smartphone className="w-4 h-4" />
+                          <span className="text-[10px]">Droite</span>
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
 
-            {activeSection === "mirror" && (
-              <ScreenMirrorPanel
-                status={status}
-                onStartMirror={handleStartMirror}
-                onStopMirror={handleStopMirror}
-                onFocusWindow={handleFocusMirrorWindow}
-              />
+                    {/* Réglages anti-franchissement */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="rounded-xl bg-[#232934]/75 border border-white/[0.07] p-4 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[12.5px] font-medium text-[#f2f5f8]">
+                            Résistance au bord
+                          </div>
+                          <div className="text-[11px] text-[#788896]">
+                            Évite de basculer sur le téléphone par erreur
+                          </div>
+                        </div>
+                        <select
+                          value={edgeResistanceMs}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setEdgeResistanceMs(val);
+                            syncInputSettings(
+                              selectedEdge,
+                              val,
+                              requireCtrlKey,
+                            );
+                          }}
+                          className="bg-[#14171c] border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-[11.5px] text-[#f2f5f8] outline-none"
+                        >
+                          <option value={0}>Aucune</option>
+                          <option value={120}>Douce</option>
+                          <option value={250}>Ferme</option>
+                        </select>
+                      </div>
+
+                      <div className="rounded-xl bg-[#232934]/75 border border-white/[0.07] p-4 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[12.5px] font-medium text-[#f2f5f8]">
+                            Maintenir la touche Ctrl
+                          </div>
+                          <div className="text-[11px] text-[#788896]">
+                            Passe sur le téléphone uniquement avec Ctrl
+                          </div>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={requireCtrlKey}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setRequireCtrlKey(checked);
+                            syncInputSettings(
+                              selectedEdge,
+                              edgeResistanceMs,
+                              checked,
+                            );
+                          }}
+                          className="w-4 h-4 accent-[#87CFF9] cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Vue Paramètres à 2 colonnes */}
+                {activeTab === "settings" && (
+                  <SettingsPanel
+                    status={status}
+                    onRegenerateToken={handleRegenerateToken}
+                    onRequestDisconnect={() => setDisconnectConfirmOpen(true)}
+                    onOpenDownloadsFolder={() =>
+                      invoke("open_downloads_folder")
+                    }
+                  />
+                )}
+              </>
             )}
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
-
-      {/* 3. Barre d'état inférieure */}
-      <StatusBar status={status} />
 
       {/* Boîte de confirmation d'association manuelle (sans QR Code) */}
       {status.pendingPairing && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-[#13151d] border border-white/[0.12] shadow-2xl p-6 space-y-5">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center text-indigo-400 shrink-0">
+          <div className="w-full max-w-md rounded-2xl bg-[#1b2028] border border-white/[0.12] shadow-2xl p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#005C7D] border border-[#87CFF9]/30 flex items-center justify-center text-[#87CFF9]">
                 <Smartphone className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-[16px] font-semibold text-zinc-100">
+                <h3 className="text-[15px] font-semibold text-[#f2f5f8]">
                   Demande de connexion
                 </h3>
-                <p className="text-[13px] text-zinc-400">
-                  <strong>{status.pendingPairing.deviceName}</strong> souhaite
-                  se connecter à cet ordinateur.
+                <p className="text-[12.5px] text-[#b0cadc]">
+                  <strong className="text-[#f2f5f8]">
+                    {status.pendingPairing.deviceName}
+                  </strong>{" "}
+                  souhaite se connecter à cet ordinateur.
                 </p>
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#0c0d12] border border-white/[0.08] p-4 text-center space-y-1.5">
-              <div className="text-[12px] text-zinc-400">
+            <div className="rounded-xl bg-[#14171c] border border-white/[0.08] p-4 text-center space-y-1.5">
+              <div className="text-[12px] text-[#b0cadc]">
                 Vérifiez que ce code correspond à celui affiché sur votre
                 téléphone
               </div>
-              <div className="text-3xl font-bold tracking-[0.28em] font-mono-tabular text-indigo-300 py-1">
+              <div className="text-3xl font-bold tracking-[0.28em] font-mono-tabular text-[#87CFF9] py-1">
                 {status.pendingPairing.verificationCode}
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-2.5">
               <button
+                type="button"
                 onClick={() =>
                   handleRespondToPairing(
                     status.pendingPairing!.requestId,
                     false,
                   )
                 }
-                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-zinc-300 transition cursor-pointer"
+                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-[#d6e4ee] transition cursor-pointer"
               >
                 Refuser
               </button>
               <button
+                type="button"
                 onClick={() =>
                   handleRespondToPairing(status.pendingPairing!.requestId, true)
                 }
-                className="h-9 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[13px] font-medium text-white transition cursor-pointer"
+                className="h-9 px-4 rounded-lg bg-[#005C7D] hover:bg-[#00719a] text-[13px] font-medium text-[#f2f5f8] transition cursor-pointer"
               >
                 Accepter
               </button>
@@ -858,15 +968,15 @@ function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl bg-[#141720] border border-white/[0.12] shadow-2xl p-6 space-y-5"
+            className="w-full max-w-md rounded-2xl bg-[#1b2028] border border-white/[0.12] shadow-2xl p-6 space-y-5"
           >
             <div className="space-y-1.5">
-              <h3 className="text-[16px] font-semibold text-zinc-100">
+              <h3 className="text-[15px] font-semibold text-[#f2f5f8]">
                 Déconnecter l&apos;appareil ?
               </h3>
-              <p className="text-[13px] text-zinc-400">
+              <p className="text-[13px] text-[#b0cadc]">
                 Voulez-vous vraiment déconnecter et dissocier{" "}
-                <strong className="text-zinc-200">
+                <strong className="text-[#f2f5f8]">
                   {connectedDevice.deviceName}
                 </strong>{" "}
                 de cet ordinateur ?
@@ -875,12 +985,14 @@ function App() {
 
             <div className="flex items-center justify-end gap-2.5">
               <button
+                type="button"
                 onClick={() => setDisconnectConfirmOpen(false)}
-                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-zinc-300 transition cursor-pointer"
+                className="h-9 px-4 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[13px] text-[#d6e4ee] transition cursor-pointer"
               >
                 Annuler
               </button>
               <button
+                type="button"
                 onClick={async () => {
                   setDisconnectConfirmOpen(false);
                   await handleDisconnectDevice();
@@ -902,38 +1014,59 @@ function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-xl bg-[#13151c] border border-white/[0.12] shadow-2xl overflow-hidden"
+            className="w-full max-w-md rounded-xl bg-[#1b2028] border border-white/[0.12] shadow-2xl overflow-hidden"
           >
-            <div className="px-3.5 py-2.5 border-b border-white/[0.07] flex items-center justify-between text-[12px] text-zinc-300">
+            <div className="px-3.5 py-2.5 border-b border-white/[0.07] flex items-center justify-between text-[12px] text-[#d6e4ee]">
               <span className="flex items-center gap-2 font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <Sparkles className="w-3.5 h-3.5 text-[#87CFF9]" />
                 Actions rapides NexusLink
               </span>
-              <kbd className="text-[10px] font-mono-tabular text-zinc-500">
+              <kbd className="text-[10px] font-mono-tabular text-[#788896]">
                 Échap
               </kbd>
             </div>
             <div className="p-1.5 space-y-0.5 text-[12px]">
               <button
+                type="button"
+                onClick={() => {
+                  handleOpenMirror();
+                  setCommandPaletteOpen(false);
+                }}
+                disabled={!connectedDevice}
+                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] disabled:opacity-40 flex items-center justify-between text-[#f2f5f8] cursor-pointer"
+              >
+                <span>Ouvrir l&apos;écran du téléphone</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  invoke("pick_and_send_files");
+                  setCommandPaletteOpen(false);
+                }}
+                disabled={!connectedDevice}
+                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] disabled:opacity-40 flex items-center justify-between text-[#f2f5f8] cursor-pointer"
+              >
+                <span>Envoyer des fichiers vers le téléphone</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   handleRegenerateToken();
                   setCommandPaletteOpen(false);
                 }}
-                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-zinc-200 cursor-pointer"
+                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-[#f2f5f8] cursor-pointer"
               >
-                <span>Générer un nouveau QR Code d'association</span>
+                <span>Générer un nouveau QR Code d&apos;association</span>
               </button>
               <button
+                type="button"
                 onClick={() => {
-                  setActiveSection("input");
+                  setActiveTab("settings");
                   setCommandPaletteOpen(false);
                 }}
-                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-zinc-200 cursor-pointer"
+                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] flex items-center justify-between text-[#f2f5f8] cursor-pointer"
               >
-                <span>Configurer la position du téléphone</span>
-                <span className="text-[10px] font-mono-tabular text-zinc-500">
-                  Alt+2
-                </span>
+                <span>Ouvrir les paramètres</span>
               </button>
             </div>
           </div>
@@ -944,9 +1077,3 @@ function App() {
 }
 
 export default App;
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
