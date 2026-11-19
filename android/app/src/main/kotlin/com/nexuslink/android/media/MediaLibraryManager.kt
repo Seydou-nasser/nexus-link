@@ -1,10 +1,12 @@
 package com.nexuslink.android.media
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -136,6 +138,10 @@ class MediaLibraryManager(private val context: Context) {
     /**
      * Retourne une page de médias (photos + vidéos) triés du plus récent au plus ancien.
      * Si [bucketId] est fourni, filtre uniquement sur ce dossier.
+     *
+     * Sur Android 8+ (API 26+), exécute directement LIMIT / OFFSET dans SQLite via
+     * MediaStore.Files pour ne lire que les 60 lignes demandées (temps constant même
+     * avec 100 000 médias).
      */
     fun listMediaItems(
         bucketId: String? = null,
@@ -146,18 +152,189 @@ class MediaLibraryManager(private val context: Context) {
         val safeOffset = offset.coerceAtLeast(0)
         val normalizedBucket = bucketId?.takeIf { it.isNotBlank() }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                return listMediaItemsSqlPaged(normalizedBucket, safeLimit, safeOffset)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Permission manquante pour MediaStore.Files")
+                return MediaPageResponse(emptyList(), 0, safeOffset, safeLimit, false)
+            } catch (e: Exception) {
+                Log.w(TAG, "Repli vers le listing classique après échec SQL paginé", e)
+            }
+        }
+
+        return listMediaItemsLegacy(normalizedBucket, safeLimit, safeOffset)
+    }
+
+    private fun listMediaItemsSqlPaged(
+        bucketId: String?,
+        limit: Int,
+        offset: Int
+    ): MediaPageResponse {
+        val filesUri = MediaStore.Files.getContentUri("external")
+        val selection = buildString {
+            append("${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)")
+            if (bucketId != null) {
+                append(" AND ${MediaStore.MediaColumns.BUCKET_ID} = ?")
+            }
+        }
+        val selectionArgs = if (bucketId != null) {
+            arrayOf(
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
+                bucketId
+            )
+        } else {
+            arrayOf(
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+            )
+        }
+
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.Files.FileColumns.MEDIA_TYPE,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.MediaColumns.WIDTH,
+            MediaStore.MediaColumns.HEIGHT,
+            MediaStore.MediaColumns.BUCKET_ID,
+            MediaStore.MediaColumns.BUCKET_DISPLAY_NAME,
+            "duration"
+        )
+
+        val queryArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+            putString(
+                ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                "${MediaStore.MediaColumns.DATE_ADDED} DESC, ${MediaStore.MediaColumns._ID} DESC"
+            )
+            // Demande limit + 1 lignes pour savoir immédiatement s'il existe une page suivante
+            putInt(ContentResolver.QUERY_ARG_LIMIT, limit + 1)
+            putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+        }
+
+        val items = ArrayList<MediaItemDto>(limit + 1)
+        context.contentResolver.query(filesUri, projection, queryArgs, null)?.use { cursor ->
+            val idIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            val mediaTypeIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val nameIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+            val mimeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+            val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+            val dateIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
+            val widthIdx = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+            val heightIdx = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
+            val bucketIdIdx = cursor.getColumnIndex(MediaStore.MediaColumns.BUCKET_ID)
+            val bucketNameIdx = cursor.getColumnIndex(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
+            val durationIdx = cursor.getColumnIndex("duration")
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val rawMediaType = if (mediaTypeIdx >= 0) cursor.getInt(mediaTypeIdx) else 0
+                val isVideo = rawMediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                val mediaType = if (isVideo) MEDIA_TYPE_VIDEO else MEDIA_TYPE_IMAGE
+
+                val displayName = if (nameIdx >= 0) {
+                    cursor.getString(nameIdx) ?: "media_$id"
+                } else {
+                    "media_$id"
+                }
+                val defaultMime = if (isVideo) "video/mp4" else "image/jpeg"
+                val mimeType = if (mimeIdx >= 0) {
+                    cursor.getString(mimeIdx) ?: defaultMime
+                } else {
+                    defaultMime
+                }
+                val size = if (sizeIdx >= 0) cursor.getLong(sizeIdx).coerceAtLeast(0L) else 0L
+                val dateAdded = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L
+                val width = if (widthIdx >= 0) cursor.getInt(widthIdx) else 0
+                val height = if (heightIdx >= 0) cursor.getInt(heightIdx) else 0
+                val itemBucketId = if (bucketIdIdx >= 0) {
+                    cursor.getString(bucketIdIdx) ?: "unknown"
+                } else {
+                    "unknown"
+                }
+                val itemBucketName = if (bucketNameIdx >= 0) {
+                    cursor.getString(bucketNameIdx)?.takeIf { it.isNotBlank() } ?: "Autres"
+                } else {
+                    "Autres"
+                }
+                val durationMs = if (isVideo && durationIdx >= 0) {
+                    cursor.getLong(durationIdx).coerceAtLeast(0L)
+                } else {
+                    0L
+                }
+
+                items.add(
+                    MediaItemDto(
+                        id = id,
+                        mediaType = mediaType,
+                        displayName = displayName,
+                        mimeType = mimeType,
+                        size = size,
+                        dateAdded = dateAdded,
+                        width = width,
+                        height = height,
+                        durationMs = durationMs,
+                        bucketId = itemBucketId,
+                        bucketName = itemBucketName
+                    )
+                )
+            }
+        }
+
+        val hasMore = items.size > limit
+        val pageItems = if (hasMore) items.subList(0, limit).toList() else items
+
+        // Compte total léger (1 colonne _ID sans parcourir les lignes)
+        val total = countMatchingMedia(filesUri, selection, selectionArgs)
+            .coerceAtLeast(offset + pageItems.size)
+
+        return MediaPageResponse(
+            items = pageItems,
+            total = total,
+            offset = offset,
+            limit = limit,
+            hasMore = hasMore
+        )
+    }
+
+    private fun countMatchingMedia(
+        uri: Uri,
+        selection: String,
+        selectionArgs: Array<String>
+    ): Int = try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns._ID),
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor -> cursor.count } ?: 0
+    } catch (_: Exception) {
+        0
+    }
+
+    private fun listMediaItemsLegacy(
+        bucketId: String?,
+        safeLimit: Int,
+        safeOffset: Int
+    ): MediaPageResponse {
         val allItems = ArrayList<MediaItemDto>(safeLimit * 2)
         queryMediaForUri(
             uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             mediaType = MEDIA_TYPE_IMAGE,
-            bucketId = normalizedBucket,
+            bucketId = bucketId,
             isVideo = false,
             output = allItems
         )
         queryMediaForUri(
             uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
             mediaType = MEDIA_TYPE_VIDEO,
-            bucketId = normalizedBucket,
+            bucketId = bucketId,
             isVideo = true,
             output = allItems
         )
