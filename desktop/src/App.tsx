@@ -44,7 +44,10 @@ type TopTabId =
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
 function App() {
@@ -634,6 +637,17 @@ function App() {
                             const canOpen = Boolean(
                               item.savedPath && item.status === "COMPLETED",
                             );
+                            const isPending = item.status === "PENDING";
+                            const transferred = item.bytesTransferred ?? 0;
+                            const progressPct =
+                              item.fileSize > 0
+                                ? Math.min(
+                                    100,
+                                    Math.round(
+                                      (transferred / item.fileSize) * 100,
+                                    ),
+                                  )
+                                : 0;
                             return (
                               <div
                                 key={item.fileId}
@@ -644,53 +658,71 @@ function App() {
                                     });
                                   }
                                 }}
-                                className={`rounded-xl bg-[#232934]/75 border border-white/[0.07] p-3 flex items-center justify-between gap-3 ${
+                                className={`rounded-xl bg-[#232934]/75 border border-white/[0.07] p-3 flex flex-col gap-2 ${
                                   canOpen
                                     ? "hover:border-[#87CFF9]/40 hover:bg-[#232934] cursor-pointer transition"
                                     : ""
                                 }`}
                               >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  {item.thumbnailBase64 ? (
-                                    <img
-                                      src={`data:image/jpeg;base64,${item.thumbnailBase64}`}
-                                      alt={item.fileName}
-                                      className="w-11 h-11 rounded-lg object-cover shrink-0 border border-white/[0.1]"
-                                    />
-                                  ) : (
-                                    <div className="w-11 h-11 rounded-lg bg-[#005C7D]/40 border border-[#87CFF9]/20 flex items-center justify-center shrink-0">
-                                      <FileUp className="w-4 h-4 text-[#87CFF9]" />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <div className="text-[13px] font-medium text-[#f2f5f8] truncate">
-                                      {item.fileName}
-                                    </div>
-                                    <div className="text-[11px] text-[#788896]">
-                                      {item.direction === "SENT"
-                                        ? "Envoyé"
-                                        : "Reçu"}{" "}
-                                      • {formatFileSize(item.fileSize)} •{" "}
-                                      {item.timestamp.replace(" UTC", "")}
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    {item.thumbnailBase64 ? (
+                                      <img
+                                        src={`data:image/jpeg;base64,${item.thumbnailBase64}`}
+                                        alt={item.fileName}
+                                        className="w-11 h-11 rounded-lg object-cover shrink-0 border border-white/[0.1]"
+                                      />
+                                    ) : (
+                                      <div className="w-11 h-11 rounded-lg bg-[#005C7D]/40 border border-[#87CFF9]/20 flex items-center justify-center shrink-0">
+                                        <FileUp className="w-4 h-4 text-[#87CFF9]" />
+                                      </div>
+                                    )}
+                                    <div className="min-w-0">
+                                      <div className="text-[13px] font-medium text-[#f2f5f8] truncate">
+                                        {item.fileName}
+                                      </div>
+                                      <div className="text-[11px] text-[#788896]">
+                                        {item.direction === "SENT"
+                                          ? "Envoyé"
+                                          : "Reçu"}{" "}
+                                        •{" "}
+                                        {isPending && item.fileSize > 0
+                                          ? `${formatFileSize(transferred)} / ${formatFileSize(item.fileSize)}`
+                                          : formatFileSize(item.fileSize)}{" "}
+                                        • {item.timestamp.replace(" UTC", "")}
+                                      </div>
                                     </div>
                                   </div>
+
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 font-mono-tabular ${
+                                      item.status === "COMPLETED"
+                                        ? "bg-emerald-500/15 text-emerald-300"
+                                        : item.status === "FAILED"
+                                          ? "bg-rose-500/15 text-rose-300"
+                                          : "bg-[#005C7D]/60 text-[#87CFF9]"
+                                    }`}
+                                  >
+                                    {item.status === "COMPLETED"
+                                      ? "Terminé"
+                                      : item.status === "FAILED"
+                                        ? "Échec"
+                                        : item.fileSize > 0
+                                          ? `${progressPct}%`
+                                          : "En cours"}
+                                  </span>
                                 </div>
 
-                                <span
-                                  className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                                    item.status === "COMPLETED"
-                                      ? "bg-emerald-500/15 text-emerald-300"
-                                      : item.status === "FAILED"
-                                        ? "bg-rose-500/15 text-rose-300"
-                                        : "bg-[#005C7D]/60 text-[#87CFF9]"
-                                  }`}
-                                >
-                                  {item.status === "COMPLETED"
-                                    ? "Terminé"
-                                    : item.status === "FAILED"
-                                      ? "Échec"
-                                      : "En cours"}
-                                </span>
+                                {isPending && (
+                                  <div className="h-1.5 w-full rounded-full bg-white/[0.08] overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-[#87CFF9] transition-all duration-150"
+                                      style={{
+                                        width: `${item.fileSize > 0 ? progressPct : 35}%`,
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, State};
@@ -23,6 +24,7 @@ use crate::protocol::{FileTransferOfferPayload, FileTransferRecord};
 
 const MAX_TRANSFERS_HISTORY: usize = 30;
 const MAX_CLIPBOARD_IMAGE_BYTES: usize = 5 * 1024 * 1024; // 5 Mo max
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(120);
 
 #[derive(Clone)]
 struct HttpServerState {
@@ -128,6 +130,7 @@ pub fn queue_files_for_phone(
                     file_id: file_id.clone(),
                     file_name: file_name.clone(),
                     file_size,
+                    bytes_transferred: 0,
                     direction: "SENT".to_string(),
                     status: "PENDING".to_string(),
                     saved_path: Some(path.to_string_lossy().to_string()),
@@ -200,29 +203,60 @@ async fn handle_upload(
     // Cas 2 : Fichier ou photo envoyé vers Téléchargements/NexusLink
     let dest_dir = get_nexus_downloads_dir();
     let dest_path = unique_destination_path(&dest_dir, &safe_name);
+    let expected_size = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
 
     let mut file = match tokio::fs::File::create(&dest_path).await {
         Ok(f) => f,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Création impossible").into_response(),
     };
 
+    let file_id = Uuid::new_v4().to_string();
+    {
+        let mut guard = state.network.lock().unwrap();
+        push_transfer_record(
+            &mut guard,
+            FileTransferRecord {
+                file_id: file_id.clone(),
+                file_name: safe_name.clone(),
+                file_size: expected_size,
+                bytes_transferred: 0,
+                direction: "RECEIVED".to_string(),
+                status: "PENDING".to_string(),
+                saved_path: Some(dest_path.to_string_lossy().to_string()),
+                thumbnail_base64: None,
+                timestamp: current_time_label(),
+            },
+        );
+    }
+    emit_file_transfers(&state.network, &state.app_handle);
+
     let mut total_bytes = 0u64;
+    let mut last_emit = Instant::now();
     let mut stream = body.into_data_stream();
     while let Some(chunk_res) = stream.next().await {
         let Ok(chunk) = chunk_res else {
             let _ = tokio::fs::remove_file(&dest_path).await;
+            mark_transfer_failed(&state.network, &state.app_handle, &file_id);
             return (StatusCode::BAD_REQUEST, "Flux interrompu").into_response();
         };
         if file.write_all(&chunk).await.is_err() {
             let _ = tokio::fs::remove_file(&dest_path).await;
+            mark_transfer_failed(&state.network, &state.app_handle, &file_id);
             return (StatusCode::INTERNAL_SERVER_ERROR, "Erreur d'écriture").into_response();
         }
         total_bytes += chunk.len() as u64;
+        if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
+            last_emit = Instant::now();
+            update_transfer_progress(&state.network, &state.app_handle, &file_id, total_bytes);
+        }
     }
 
     let _ = file.flush().await;
 
-    let file_id = Uuid::new_v4().to_string();
     let thumbnail_base64 = if guess_mime_type(&safe_name).starts_with("image/") {
         generate_image_thumbnail_base64(&dest_path)
     } else {
@@ -231,19 +265,16 @@ async fn handle_upload(
 
     {
         let mut guard = state.network.lock().unwrap();
-        push_transfer_record(
-            &mut guard,
-            FileTransferRecord {
-                file_id,
-                file_name: safe_name.clone(),
-                file_size: total_bytes,
-                direction: "RECEIVED".to_string(),
-                status: "COMPLETED".to_string(),
-                saved_path: Some(dest_path.to_string_lossy().to_string()),
-                thumbnail_base64,
-                timestamp: current_time_label(),
-            },
-        );
+        if let Some(rec) = guard
+            .file_transfers
+            .iter_mut()
+            .find(|r| r.file_id == file_id)
+        {
+            rec.file_size = total_bytes;
+            rec.bytes_transferred = total_bytes;
+            rec.status = "COMPLETED".to_string();
+            rec.thumbnail_base64 = thumbnail_base64;
+        }
     }
 
     emit_file_transfers(&state.network, &state.app_handle);
@@ -301,20 +332,43 @@ async fn handle_download(
                 .and_then(|n| n.to_str())
                 .unwrap_or("fichier");
 
-            let stream = ReaderStream::new(file);
-            let body = Body::from_stream(stream);
+            let reader_stream = ReaderStream::with_capacity(file, 64 * 1024);
+            let progress_network = Arc::clone(&state.network);
+            let progress_app = state.app_handle.clone();
+            let progress_file_id = file_id.clone();
 
-            {
-                let mut guard = state.network.lock().unwrap();
-                if let Some(rec) = guard
-                    .file_transfers
-                    .iter_mut()
-                    .find(|r| r.file_id == file_id)
-                {
-                    rec.status = "COMPLETED".to_string();
-                }
-            }
-            emit_file_transfers(&state.network, &state.app_handle);
+            let tracked_stream = futures_util::stream::unfold(
+                (reader_stream, 0u64, Instant::now()),
+                move |(mut inner, mut sent_bytes, mut last_emit)| {
+                    let net = Arc::clone(&progress_network);
+                    let app = progress_app.clone();
+                    let fid = progress_file_id.clone();
+                    async move {
+                        match inner.next().await {
+                            Some(Ok(chunk)) => {
+                                sent_bytes += chunk.len() as u64;
+                                if file_len > 0 && sent_bytes >= file_len {
+                                    mark_transfer_completed(&net, &app, &fid, file_len.max(sent_bytes));
+                                } else if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
+                                    last_emit = Instant::now();
+                                    update_transfer_progress(&net, &app, &fid, sent_bytes);
+                                }
+                                Some((Ok::<Bytes, std::io::Error>(chunk), (inner, sent_bytes, last_emit)))
+                            }
+                            Some(Err(err)) => {
+                                mark_transfer_failed(&net, &app, &fid);
+                                Some((Err(err), (inner, sent_bytes, last_emit)))
+                            }
+                            None => {
+                                mark_transfer_completed(&net, &app, &fid, file_len.max(sent_bytes));
+                                None
+                            }
+                        }
+                    }
+                },
+            );
+
+            let body = Body::from_stream(tracked_stream);
 
             Response::builder()
                 .status(StatusCode::OK)
@@ -324,6 +378,77 @@ async fn handle_download(
                 .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Erreur").into_response())
         }
     }
+}
+
+fn update_transfer_progress(
+    network: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+    file_id: &str,
+    bytes_transferred: u64,
+) {
+    let updated = {
+        let mut guard = network.lock().unwrap();
+        if let Some(rec) = guard
+            .file_transfers
+            .iter_mut()
+            .find(|r| r.file_id == file_id)
+        {
+            rec.bytes_transferred = bytes_transferred;
+            true
+        } else {
+            false
+        }
+    };
+    if updated {
+        emit_file_transfers(network, app_handle);
+    }
+}
+
+fn mark_transfer_completed(
+    network: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+    file_id: &str,
+    total_bytes: u64,
+) {
+    let changed = {
+        let mut guard = network.lock().unwrap();
+        if let Some(rec) = guard
+            .file_transfers
+            .iter_mut()
+            .find(|r| r.file_id == file_id)
+        {
+            if rec.status == "COMPLETED" {
+                false
+            } else {
+                rec.bytes_transferred = total_bytes;
+                rec.status = "COMPLETED".to_string();
+                true
+            }
+        } else {
+            false
+        }
+    };
+    if changed {
+        emit_file_transfers(network, app_handle);
+    }
+}
+
+fn mark_transfer_failed(
+    network: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+    file_id: &str,
+) {
+    {
+        let mut guard = network.lock().unwrap();
+        if let Some(rec) = guard
+            .file_transfers
+            .iter_mut()
+            .find(|r| r.file_id == file_id)
+        {
+            rec.status = "FAILED".to_string();
+        }
+    }
+    emit_file_transfers(network, app_handle);
 }
 
 fn is_authorized(headers: &HeaderMap, state: &Arc<Mutex<NetworkState>>) -> bool {

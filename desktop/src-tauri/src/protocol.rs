@@ -161,6 +161,7 @@ pub struct FileTransferRecord {
     pub file_id: String,
     pub file_name: String,
     pub file_size: u64,
+    pub bytes_transferred: u64,
     pub direction: String,
     pub status: String,
     pub saved_path: Option<String>,

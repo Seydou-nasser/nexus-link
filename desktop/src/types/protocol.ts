@@ -42,6 +42,7 @@ export interface FileTransferRecord {
   fileId: string;
   fileName: string;
   fileSize: number;
+  bytesTransferred: number;
   direction: "SENT" | "RECEIVED";
   status: "PENDING" | "COMPLETED" | "FAILED";
   savedPath: string | null;
@@ -138,4 +139,13 @@ export interface FsListResponse {
   currentPath: string;
   parentPath: string | null;
   entries: FsEntryDto[];
+}
+
+export interface FsTransferProgressPayload {
+  fileName: string;
+  direction: "UPLOAD" | "DOWNLOAD";
+  bytesTransferred: number;
+  totalBytes: number;
+  speedBytesPerSec: number;
+  done: boolean;
 }

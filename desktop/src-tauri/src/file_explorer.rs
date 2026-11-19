@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -14,6 +15,18 @@ use crate::network::NetworkState;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const IO_CHUNK_SIZE: usize = 64 * 1024;
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(120);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsTransferProgressPayload {
+    pub file_name: String,
+    pub direction: String,
+    pub bytes_transferred: u64,
+    pub total_bytes: u64,
+    pub speed_bytes_per_sec: u64,
+    pub done: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,7 +73,7 @@ fn get_android_target(state: &Arc<Mutex<NetworkState>>) -> Result<(String, Strin
     Ok((ip, secret))
 }
 
-async fn read_http_head(reader: &mut BufReader<TcpStream>) -> Result<u16, String> {
+async fn read_http_head(reader: &mut BufReader<TcpStream>) -> Result<(u16, u64), String> {
     let mut status_line = String::new();
     timeout(READ_TIMEOUT, reader.read_line(&mut status_line))
         .await
@@ -73,18 +86,55 @@ async fn read_http_head(reader: &mut BufReader<TcpStream>) -> Result<u16, String
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| format!("Statut HTTP invalide : {}", status_line.trim()))?;
 
+    let mut content_length = 0u64;
     loop {
         let mut line = String::new();
         timeout(READ_TIMEOUT, reader.read_line(&mut line))
             .await
             .map_err(|_| "Délai dépassé lors de la lecture des en-têtes".to_string())?
             .map_err(|e| format!("Erreur de lecture des en-têtes : {}", e))?;
-        if line.trim_end_matches(['\r', '\n']).is_empty() {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
             break;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("content-length") {
+                if let Ok(parsed) = v.trim().parse::<u64>() {
+                    content_length = parsed;
+                }
+            }
         }
     }
 
-    Ok(status_code)
+    Ok((status_code, content_length))
+}
+
+fn emit_fs_progress(
+    app_handle: &AppHandle,
+    file_name: &str,
+    direction: &str,
+    bytes_transferred: u64,
+    total_bytes: u64,
+    started_at: Instant,
+    done: bool,
+) {
+    let elapsed_secs = started_at.elapsed().as_secs_f64();
+    let speed = if elapsed_secs > 0.05 {
+        (bytes_transferred as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+    let _ = app_handle.emit(
+        "nexus://fs-transfer-progress",
+        FsTransferProgressPayload {
+            file_name: file_name.to_string(),
+            direction: direction.to_string(),
+            bytes_transferred,
+            total_bytes,
+            speed_bytes_per_sec: speed,
+            done,
+        },
+    );
 }
 
 async fn send_android_request(
@@ -123,7 +173,7 @@ async fn send_android_request(
     }
 
     let mut reader = BufReader::with_capacity(IO_CHUNK_SIZE, stream);
-    let status = read_http_head(&mut reader).await?;
+    let (status, _) = read_http_head(&mut reader).await?;
     let mut body = Vec::new();
     timeout(READ_TIMEOUT, reader.read_to_end(&mut body))
         .await
@@ -283,6 +333,7 @@ pub async fn fs_copy_entry(
 /// Télécharge un fichier Android en streaming (64 Ko) dans Téléchargements/NexusLink
 pub async fn fs_download_file(
     state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
     path: String,
     display_name: String,
 ) -> Result<String, String> {
@@ -305,7 +356,7 @@ pub async fn fs_download_file(
         .map_err(|e| format!("Erreur d'envoi vers Android : {}", e))?;
 
     let mut reader = BufReader::with_capacity(IO_CHUNK_SIZE, stream);
-    let status = read_http_head(&mut reader).await?;
+    let (status, total_bytes) = read_http_head(&mut reader).await?;
     if status != 200 {
         let mut err_body = Vec::new();
         let _ = reader.read_to_end(&mut err_body).await;
@@ -317,22 +368,54 @@ pub async fn fs_download_file(
         .await
         .map_err(|e| format!("Impossible de créer le fichier local : {}", e))?;
 
+    let started_at = Instant::now();
+    let mut last_emit = Instant::now();
+    let mut downloaded_bytes = 0u64;
+    emit_fs_progress(app_handle, &display_name, "DOWNLOAD", 0, total_bytes, started_at, false);
+
     let mut buf = vec![0u8; IO_CHUNK_SIZE];
     loop {
-        let read = reader
-            .read(&mut buf)
-            .await
-            .map_err(|e| format!("Erreur réseau pendant le téléchargement : {}", e))?;
+        let read = match reader.read(&mut buf).await {
+            Ok(n) => n,
+            Err(e) => {
+                emit_fs_progress(app_handle, &display_name, "DOWNLOAD", downloaded_bytes, total_bytes, started_at, true);
+                return Err(format!("Erreur réseau pendant le téléchargement : {}", e));
+            }
+        };
         if read == 0 {
             break;
         }
-        file.write_all(&buf[..read])
-            .await
-            .map_err(|e| format!("Erreur d'écriture locale : {}", e))?;
+        if let Err(e) = file.write_all(&buf[..read]).await {
+            emit_fs_progress(app_handle, &display_name, "DOWNLOAD", downloaded_bytes, total_bytes, started_at, true);
+            return Err(format!("Erreur d'écriture locale : {}", e));
+        }
+        downloaded_bytes += read as u64;
+        if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
+            last_emit = Instant::now();
+            emit_fs_progress(
+                app_handle,
+                &display_name,
+                "DOWNLOAD",
+                downloaded_bytes,
+                total_bytes.max(downloaded_bytes),
+                started_at,
+                false,
+            );
+        }
     }
     file.flush()
         .await
         .map_err(|e| format!("Erreur de finalisation du fichier : {}", e))?;
+
+    emit_fs_progress(
+        app_handle,
+        &display_name,
+        "DOWNLOAD",
+        downloaded_bytes,
+        total_bytes.max(downloaded_bytes),
+        started_at,
+        true,
+    );
 
     Ok(target_path.to_string_lossy().to_string())
 }
@@ -340,6 +423,7 @@ pub async fn fs_download_file(
 /// Envoie un ou plusieurs fichiers PC en streaming (64 Ko) directement dans le dossier Android cible
 pub async fn fs_upload_files(
     state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
     target_dir: String,
     local_paths: Vec<PathBuf>,
 ) -> Result<usize, String> {
@@ -382,19 +466,33 @@ pub async fn fs_upload_files(
         let mut file = tokio::fs::File::open(&path)
             .await
             .map_err(|e| format!("Impossible d'ouvrir {} : {}", file_name, e))?;
+
+        let started_at = Instant::now();
+        let mut last_emit = Instant::now();
+        let mut sent_bytes = 0u64;
+        emit_fs_progress(app_handle, &file_name, "UPLOAD", 0, file_size, started_at, false);
+
         let mut buf = vec![0u8; IO_CHUNK_SIZE];
         loop {
-            let read = file
-                .read(&mut buf)
-                .await
-                .map_err(|e| format!("Erreur lecture locale : {}", e))?;
+            let read = match file.read(&mut buf).await {
+                Ok(n) => n,
+                Err(e) => {
+                    emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
+                    return Err(format!("Erreur lecture locale : {}", e));
+                }
+            };
             if read == 0 {
                 break;
             }
-            stream
-                .write_all(&buf[..read])
-                .await
-                .map_err(|e| format!("Erreur réseau pendant l'envoi : {}", e))?;
+            if let Err(e) = stream.write_all(&buf[..read]).await {
+                emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
+                return Err(format!("Erreur réseau pendant l'envoi : {}", e));
+            }
+            sent_bytes += read as u64;
+            if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
+                last_emit = Instant::now();
+                emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, false);
+            }
         }
         stream
             .flush()
@@ -402,7 +500,8 @@ pub async fn fs_upload_files(
             .map_err(|e| format!("Erreur finalisation envoi : {}", e))?;
 
         let mut reader = BufReader::with_capacity(4096, stream);
-        let status = read_http_head(&mut reader).await?;
+        let (status, _) = read_http_head(&mut reader).await?;
+        emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
         if status != 200 {
             let mut err_body = Vec::new();
             let _ = reader.read_to_end(&mut err_body).await;

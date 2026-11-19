@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   ArrowUp,
   CheckCircle2,
@@ -30,6 +31,7 @@ import type {
   FsEntryDto,
   FsListResponse,
   FsStorageInfoDto,
+  FsTransferProgressPayload,
 } from "../types/protocol";
 
 interface FileClipboardItem {
@@ -115,6 +117,8 @@ export function FileExplorerPanel({
 
   const [loading, setLoading] = useState(false);
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  const [transferProgress, setTransferProgress] =
+    useState<FsTransferProgressPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toastInfo, setToastInfo] = useState<{
     text: string;
@@ -151,6 +155,23 @@ export function FileExplorerPanel({
     }, durationMs);
     return () => window.clearTimeout(timer);
   }, [toastInfo]);
+
+  // Écoute la progression temps réel des uploads/téléchargements de l'Explorateur
+  useEffect(() => {
+    const unlistenPromise = listen<FsTransferProgressPayload>(
+      "nexus://fs-transfer-progress",
+      (event) => {
+        if (event.payload.done) {
+          setTransferProgress(null);
+        } else {
+          setTransferProgress(event.payload);
+        }
+      },
+    );
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
 
   const loadStorageInfo = useCallback(async () => {
     try {
@@ -719,6 +740,68 @@ export function FileExplorerPanel({
             </button>
           </div>
         </div>
+
+        {/* Barre de progression temps réel pour les uploads / téléchargements */}
+        {transferProgress && (
+          <div className="rounded-xl bg-[#232934]/90 border border-[#87CFF9]/30 px-3.5 py-2.5 space-y-1.5 shrink-0">
+            <div className="flex items-center justify-between gap-3 text-[12px]">
+              <div className="flex items-center gap-2 min-w-0">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#87CFF9] shrink-0" />
+                <span className="text-[#f2f5f8] font-medium truncate">
+                  {transferProgress.direction === "UPLOAD"
+                    ? "Envoi"
+                    : "Téléchargement"}{" "}
+                  : {transferProgress.fileName}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] font-mono-tabular text-[#b0cadc] shrink-0">
+                <span>
+                  {formatBytes(transferProgress.bytesTransferred)}
+                  {transferProgress.totalBytes > 0
+                    ? ` / ${formatBytes(transferProgress.totalBytes)}`
+                    : ""}
+                </span>
+                {transferProgress.speedBytesPerSec > 0 && (
+                  <span className="text-[#87CFF9]">
+                    • {formatBytes(transferProgress.speedBytesPerSec)}/s
+                  </span>
+                )}
+                {transferProgress.totalBytes > 0 && (
+                  <span className="px-1.5 py-0.5 rounded bg-[#005C7D]/70 text-[#87CFF9] font-semibold">
+                    {Math.min(
+                      100,
+                      Math.round(
+                        (transferProgress.bytesTransferred /
+                          transferProgress.totalBytes) *
+                          100,
+                      ),
+                    )}
+                    %
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-white/[0.08] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#87CFF9] transition-all duration-150"
+                style={{
+                  width: `${
+                    transferProgress.totalBytes > 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (transferProgress.bytesTransferred /
+                              transferProgress.totalBytes) *
+                              100,
+                          ),
+                        )
+                      : 30
+                  }%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Erreurs éventuelles */}
         {errorMessage && (

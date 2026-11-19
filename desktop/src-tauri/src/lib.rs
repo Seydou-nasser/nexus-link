@@ -518,9 +518,10 @@ async fn fs_download_file(
     path: String,
     display_name: String,
     state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
 ) -> Result<String, String> {
     let network = Arc::clone(state.inner());
-    file_explorer::fs_download_file(&network, path, display_name).await
+    file_explorer::fs_download_file(&network, &app_handle, path, display_name).await
 }
 
 /// Envoie une notification Windows native uniquement si la fenêtre principale n'est pas visible/active
@@ -564,7 +565,9 @@ async fn fs_upload_files(
 ) -> Result<usize, String> {
     let network = Arc::clone(state.inner());
     let local_paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    let uploaded = file_explorer::fs_upload_files(&network, target_dir.clone(), local_paths).await?;
+    let uploaded =
+        file_explorer::fs_upload_files(&network, &app_handle, target_dir.clone(), local_paths)
+            .await?;
     notify_fs_upload_if_background(&app_handle, uploaded, &target_dir);
     Ok(uploaded)
 }
@@ -591,7 +594,8 @@ async fn fs_pick_and_upload_files(
         return Ok(0);
     }
     let network = Arc::clone(state.inner());
-    let uploaded = file_explorer::fs_upload_files(&network, target_dir.clone(), chosen).await?;
+    let uploaded =
+        file_explorer::fs_upload_files(&network, &app_handle, target_dir.clone(), chosen).await?;
     notify_fs_upload_if_background(&app_handle, uploaded, &target_dir);
     Ok(uploaded)
 }
