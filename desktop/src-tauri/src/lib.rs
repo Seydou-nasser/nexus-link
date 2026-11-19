@@ -1,3 +1,4 @@
+pub mod calls;
 pub mod clipboard;
 pub mod file_explorer;
 pub mod file_server;
@@ -646,6 +647,26 @@ async fn sms_send(
     sms::sms_send(&network, address, body).await
 }
 
+/// Liste l'historique récent des appels du téléphone Android connecté
+#[tauri::command]
+async fn calls_list_history(
+    limit: Option<usize>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<calls::CallLogEntryDto>, String> {
+    let network = Arc::clone(state.inner());
+    calls::calls_list_history(&network, limit).await
+}
+
+/// Lance un appel téléphonique sur le téléphone Android connecté
+#[tauri::command]
+async fn calls_dial_number(
+    number: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<(), String> {
+    let network = Arc::clone(state.inner());
+    calls::calls_dial_number(&network, number).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -767,7 +788,9 @@ pub fn run() {
             sms_list_conversations,
             sms_list_messages,
             sms_search_contacts,
-            sms_send
+            sms_send,
+            calls_list_history,
+            calls_dial_number
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");

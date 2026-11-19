@@ -483,6 +483,9 @@ async fn handle_ws_connection(
                         "SMS_UPDATED" if is_authenticated => {
                             let _ = app_handle.emit("nexus://sms-updated", ());
                         }
+                        "CALLS_UPDATED" if is_authenticated => {
+                            let _ = app_handle.emit("nexus://calls-updated", ());
+                        }
                         "INPUT_FOCUS_STATE" if is_authenticated => {
                             if let Ok(focus) =
                                 serde_json::from_value::<InputFocusStatePayload>(envelope.payload)
