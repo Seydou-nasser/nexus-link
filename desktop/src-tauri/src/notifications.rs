@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
-use crate::network::{current_time_label, NetworkState};
+use crate::network::{current_epoch_millis, current_time_label, NetworkState};
 use crate::protocol::{
     NotificationDismissPayload, NotificationPostedPayload, NotificationRemovedPayload,
     NotificationReplyPayload, PhoneNotificationRecord,
@@ -16,6 +16,12 @@ pub fn handle_notification_posted(
     state: &Arc<Mutex<NetworkState>>,
     app_handle: &AppHandle,
 ) {
+    let posted_at_ms = if payload.posted_at_ms > 0 {
+        payload.posted_at_ms
+    } else {
+        current_epoch_millis() as i64
+    };
+
     let record = PhoneNotificationRecord {
         notification_key: payload.notification_key.clone(),
         package_name: payload.package_name,
@@ -26,6 +32,7 @@ pub fn handle_notification_posted(
         actions: payload.actions,
         icon_base64: payload.icon_base64,
         timestamp: current_time_label(),
+        posted_at_ms,
     };
 
     let snapshot = {
@@ -34,6 +41,9 @@ pub fn handle_notification_posted(
             .notifications
             .retain(|item| item.notification_key != record.notification_key);
         guard.notifications.insert(0, record);
+        guard
+            .notifications
+            .sort_by(|a, b| b.posted_at_ms.cmp(&a.posted_at_ms));
         if guard.notifications.len() > MAX_NOTIFICATIONS {
             guard.notifications.truncate(MAX_NOTIFICATIONS);
         }

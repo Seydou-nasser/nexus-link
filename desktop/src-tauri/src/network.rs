@@ -700,9 +700,5 @@ pub fn current_epoch_millis() -> u64 {
 }
 
 pub fn current_time_label() -> String {
-    let secs = (current_epoch_millis() / 1000) % 86400;
-    let hours = (secs / 3600) % 24;
-    let minutes = (secs % 3600) / 60;
-    let seconds = secs % 60;
-    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    current_epoch_millis().to_string()
 }

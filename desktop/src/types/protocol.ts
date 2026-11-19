@@ -36,6 +36,7 @@ export interface PhoneNotificationRecord {
   actions: string[];
   iconBase64: string | null;
   timestamp: string;
+  postedAtMs: number;
 }
 
 export interface FileTransferRecord {

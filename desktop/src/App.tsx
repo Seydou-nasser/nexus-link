@@ -50,6 +50,18 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
+function formatLocalTime(raw: string): string {
+  const num = Number(raw);
+  if (Number.isFinite(num) && num > 1_000_000_000_000) {
+    return new Date(num).toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+  return raw.replace(" UTC", "");
+}
+
 function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [activeTab, setActiveTab] = useState<TopTabId>("files");
@@ -689,7 +701,7 @@ function App() {
                                         {isPending && item.fileSize > 0
                                           ? `${formatFileSize(transferred)} / ${formatFileSize(item.fileSize)}`
                                           : formatFileSize(item.fileSize)}{" "}
-                                        • {item.timestamp.replace(" UTC", "")}
+                                        • {formatLocalTime(item.timestamp)}
                                       </div>
                                     </div>
                                   </div>
@@ -789,7 +801,7 @@ function App() {
                                 {entry.source}
                               </span>
                               <span className="text-[10px] font-mono-tabular text-[#788896]">
-                                {entry.timestamp.replace(" UTC", "")}
+                                {formatLocalTime(entry.timestamp)}
                               </span>
                             </div>
                           </div>

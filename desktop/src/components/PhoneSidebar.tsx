@@ -38,6 +38,54 @@ interface PhoneSidebarProps {
   onDismissAllNotifications: () => Promise<void>;
 }
 
+function formatNotificationTime(
+  postedAtMs: number | undefined,
+  fallbackTimestamp: string,
+): string {
+  const parsedFallback = Number(fallbackTimestamp);
+  const epochMs =
+    postedAtMs && postedAtMs > 0
+      ? postedAtMs
+      : Number.isFinite(parsedFallback) && parsedFallback > 1_000_000_000_000
+        ? parsedFallback
+        : 0;
+
+  if (!epochMs) {
+    return fallbackTimestamp.replace(" UTC", "");
+  }
+
+  const date = new Date(epochMs);
+  const now = new Date();
+  const timeStr = date.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const isSameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (isSameDay) {
+    return timeStr;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+  if (isYesterday) {
+    return `Hier ${timeStr}`;
+  }
+
+  const dayStr = date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  return `${dayStr} ${timeStr}`;
+}
+
 export function PhoneSidebar({
   status,
   connectedDevice,
@@ -278,7 +326,7 @@ export function PhoneSidebar({
 
                   <div className="flex items-center gap-1 shrink-0">
                     <span className="text-[10px] font-mono-tabular text-[#788896]">
-                      {notif.timestamp.replace(" UTC", "")}
+                      {formatNotificationTime(notif.postedAtMs, notif.timestamp)}
                     </span>
                     <button
                       type="button"

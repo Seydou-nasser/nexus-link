@@ -109,7 +109,8 @@ data class NotificationPostedPayload(
     val text: String,
     val canReply: Boolean,
     val actions: List<String> = emptyList(),
-    val iconBase64: String? = null
+    val iconBase64: String? = null,
+    val postedAtMs: Long = 0L
 )
 
 /**

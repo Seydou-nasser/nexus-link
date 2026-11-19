@@ -183,6 +183,8 @@ pub struct NotificationPostedPayload {
     pub actions: Vec<String>,
     #[serde(default)]
     pub icon_base64: Option<String>,
+    #[serde(default)]
+    pub posted_at_ms: i64,
 }
 
 /// Notification supprimée sur Android
@@ -220,6 +222,8 @@ pub struct PhoneNotificationRecord {
     pub actions: Vec<String>,
     pub icon_base64: Option<String>,
     pub timestamp: String,
+    #[serde(default)]
+    pub posted_at_ms: i64,
 }
 
 /// État du focus souris/clavier échangé sur le WebSocket (PC <-> Android)

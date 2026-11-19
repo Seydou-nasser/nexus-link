@@ -99,6 +99,12 @@ class NexusNotificationListenerService : NotificationListenerService() {
             }
         }
 
+        val postedAtMs = if (notification.`when` > 0L) {
+            notification.`when`
+        } else {
+            notifSbn.postTime
+        }
+
         val payload = NotificationPostedPayload(
             notificationKey = notifSbn.key,
             packageName = notifSbn.packageName,
@@ -107,7 +113,8 @@ class NexusNotificationListenerService : NotificationListenerService() {
             text = bodyText,
             canReply = canReply,
             actions = actionTitles,
-            iconBase64 = iconBase64
+            iconBase64 = iconBase64,
+            postedAtMs = postedAtMs
         )
         ConnectionForegroundService.sendNotificationPosted(payload)
     }
