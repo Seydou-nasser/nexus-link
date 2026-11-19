@@ -13,9 +13,11 @@ import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
 import com.nexuslink.android.data.PairingStore
+import com.nexuslink.android.media.MediaLibraryManager
 import com.nexuslink.android.network.AndroidTransferRecord
 import com.nexuslink.android.network.ConnectionState
 import com.nexuslink.android.network.FileTransferManager
+import com.nexuslink.android.network.MediaHttpServer
 import com.nexuslink.android.network.NexusWebSocketClient
 import com.nexuslink.android.network.NsdDiscoveryManager
 import com.nexuslink.android.network.UdpInputReceiver
@@ -52,6 +54,8 @@ class ConnectionForegroundService : Service() {
     private lateinit var screenshotObserver: ScreenshotObserver
     private lateinit var webSocketClient: NexusWebSocketClient
     private lateinit var udpInputReceiver: UdpInputReceiver
+    private lateinit var mediaLibraryManager: MediaLibraryManager
+    private lateinit var mediaHttpServer: MediaHttpServer
 
     val connectionState: StateFlow<ConnectionState>
         get() = webSocketClient.connectionState
@@ -150,6 +154,14 @@ class ConnectionForegroundService : Service() {
         )
         udpInputReceiver.start()
 
+        mediaLibraryManager = MediaLibraryManager(this)
+        mediaHttpServer = MediaHttpServer(
+            context = this,
+            mediaLibraryManager = mediaLibraryManager,
+            sessionSecretProvider = { webSocketClient.activeSessionSecret() }
+        )
+        mediaHttpServer.start()
+
         startForeground(NOTIFICATION_ID, buildNotification("Initialisation du lien local…", false))
 
         serviceScope.launch {
@@ -161,6 +173,7 @@ class ConnectionForegroundService : Service() {
                 } else if (!isNowConnected && wasConnected) {
                     NexusAccessibilityService.hideRemoteCursor()
                     ScreenMirrorService.stopMirroring(this@ConnectionForegroundService)
+                    mediaLibraryManager.clearCache()
                 }
                 wasConnected = isNowConnected
             }
@@ -215,6 +228,7 @@ class ConnectionForegroundService : Service() {
         NexusAccessibilityService.hideRemoteCursor()
         ScreenMirrorService.stopMirroring(this)
         udpInputReceiver.stop()
+        mediaHttpServer.shutdown()
         screenshotObserver.stop()
         deviceStatusMonitor.stop()
         nsdDiscoveryManager.stopDiscovery()

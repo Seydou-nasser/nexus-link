@@ -79,6 +79,7 @@ fun NexusLinkHomeScreen(
     isDiscovering: Boolean,
     isAccessibilityEnabled: Boolean,
     isNotificationAccessEnabled: Boolean,
+    isAllFilesAccessEnabled: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
     onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
@@ -86,6 +87,7 @@ fun NexusLinkHomeScreen(
     onOpenFile: (AndroidTransferRecord) -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenNotificationAccessSettings: () -> Unit,
+    onOpenAllFilesAccessSettings: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -311,6 +313,22 @@ fun NexusLinkHomeScreen(
                     showChevron = !isNotificationAccessEnabled,
                     onClick = {
                         if (!isNotificationAccessEnabled) onOpenNotificationAccessSettings()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                BottomNavigationTile(
+                    title = "Gestion de la galerie",
+                    subtitle = if (isAllFilesAccessEnabled) {
+                        "Actif • Suppression depuis le PC autorisée"
+                    } else {
+                        "Inactif • Appuyez pour autoriser la suppression"
+                    },
+                    iconType = QuickIconType.FOLDER,
+                    showChevron = !isAllFilesAccessEnabled,
+                    onClick = {
+                        if (!isAllFilesAccessEnabled) onOpenAllFilesAccessSettings()
                     }
                 )
             } else if (connectionState !is ConnectionState.WaitingApproval) {

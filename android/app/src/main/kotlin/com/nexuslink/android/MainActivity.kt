@@ -6,8 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
 import android.provider.Settings
 import android.widget.Toast
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private var showQrScanner by mutableStateOf(false)
     private var isAccessibilityEnabled by mutableStateOf(false)
     private var isNotificationAccessEnabled by mutableStateOf(false)
+    private var isAllFilesAccessEnabled by mutableStateOf(false)
     private var uiErrorMessage: String? by mutableStateOf(null)
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -81,8 +84,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
-    private val requestMediaPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
+    private val requestMediaPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> }
 
     private val pickFilesLauncher = registerForActivityResult(
@@ -129,6 +132,7 @@ class MainActivity : ComponentActivity() {
                             isDiscovering = isDiscovering,
                             isAccessibilityEnabled = isAccessibilityEnabled,
                             isNotificationAccessEnabled = isNotificationAccessEnabled,
+                            isAllFilesAccessEnabled = isAllFilesAccessEnabled,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
                             onSelectDiscoveredHost = { host ->
@@ -144,6 +148,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenNotificationAccessSettings = {
                                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            },
+                            onOpenAllFilesAccessSettings = {
+                                openAllFilesAccessSettings()
                             },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
@@ -161,6 +168,25 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         isAccessibilityEnabled = NexusAccessibilityService.isServiceEnabled(this)
         isNotificationAccessEnabled = NexusNotificationListenerService.isNotificationListenerEnabled(this)
+        isAllFilesAccessEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
+    private fun openAllFilesAccessSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -211,13 +237,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestMediaPermissionIfNeeded() {
-        val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_IMAGES
+        val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO
+            )
         } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
-        if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-            requestMediaPermissionLauncher.launch(perm)
+
+        val missingPermissions = requiredPermissions.filter { perm ->
+            ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isNotEmpty()) {
+            requestMediaPermissionsLauncher.launch(missingPermissions.toTypedArray())
         }
     }
 
