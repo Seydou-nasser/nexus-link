@@ -18,6 +18,7 @@ import {
   Smartphone,
   Sparkles,
 } from "lucide-react";
+import { GalleryPanel } from "./components/GalleryPanel";
 import { PhoneSidebar } from "./components/PhoneSidebar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { TitleBar } from "./components/TitleBar";
@@ -489,23 +490,12 @@ function App() {
               </div>
             ) : (
               <>
-                {/* Onglet Galerie (prêt pour l'Étape B) */}
+                {/* Onglet Galerie (Photos, Vidéos & Dossiers du téléphone) */}
                 {activeTab === "gallery" && (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="max-w-md text-center space-y-3">
-                      <div className="w-12 h-12 rounded-2xl bg-[#005C7D]/60 border border-[#87CFF9]/30 flex items-center justify-center text-[#87CFF9] mx-auto">
-                        <Images className="w-6 h-6" />
-                      </div>
-                      <h2 className="text-[16px] font-semibold text-[#f2f5f8]">
-                        Galerie Photos &amp; Vidéos
-                      </h2>
-                      <p className="text-[13px] text-[#b0cadc]">
-                        Vos photos, vidéos et dossiers du téléphone (Appareil
-                        photo, Captures d&apos;écran, WhatsApp…) apparaîtront
-                        ici dès la Partie B.
-                      </p>
-                    </div>
-                  </div>
+                  <GalleryPanel
+                    httpPort={status.httpPort}
+                    deviceId={connectedDevice?.deviceId ?? null}
+                  />
                 )}
 
                 {/* Onglet Fichiers */}

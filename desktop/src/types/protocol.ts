@@ -78,20 +78,35 @@ export interface ServerStatus {
   mirrorError: string | null;
 }
 
-export interface ClipboardHistoryEntry {
-  content: string;
-  source: string;
-  timestamp: string;
+export interface MediaFolderDto {
+  bucketId: string;
+  name: string;
+  itemCount: number;
+  photoCount: number;
+  videoCount: number;
+  coverMediaId: number;
+  coverMediaType: "IMAGE" | "VIDEO";
+  latestDateAdded: number;
 }
 
-export interface PhoneNotificationRecord {
-  notificationKey: string;
-  packageName: string;
-  appName: string;
-  title: string;
-  text: string;
-  canReply: boolean;
-  actions: string[];
-  iconBase64: string | null;
-  timestamp: string;
+export interface MediaItemDto {
+  id: number;
+  mediaType: "IMAGE" | "VIDEO";
+  displayName: string;
+  mimeType: string;
+  size: number;
+  dateAdded: number;
+  width: number;
+  height: number;
+  durationMs: number;
+  bucketId: string;
+  bucketName: string;
+}
+
+export interface MediaPageResponse {
+  items: MediaItemDto[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 }
