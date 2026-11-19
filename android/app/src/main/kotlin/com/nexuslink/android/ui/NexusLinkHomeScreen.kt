@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -617,6 +618,13 @@ private fun RecentTransferRow(
                 }
             }
         }
+        val progressFraction = if (transfer.totalBytes > 0L) {
+            (transfer.bytesTransferred.toFloat() / transfer.totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            null
+        }
+        val progressPercent = progressFraction?.let { (it * 100).toInt() }
+
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = transfer.fileName,
@@ -634,9 +642,37 @@ private fun RecentTransferRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (!transfer.completed) {
+                Spacer(modifier = Modifier.height(5.dp))
+                if (progressFraction != null) {
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        drawStopIndicator = {}
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
+                }
+            }
         }
         Text(
-            text = if (transfer.completed) "✓" else "…",
+            text = when {
+                transfer.completed -> "✓"
+                progressPercent != null -> "$progressPercent%"
+                else -> "…"
+            },
             style = MaterialTheme.typography.labelLarge,
             color = if (transfer.completed) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
         )
