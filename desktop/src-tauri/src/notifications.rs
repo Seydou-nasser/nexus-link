@@ -130,3 +130,33 @@ pub fn dismiss_notification(
     let _ = app_handle.emit("nexus://notifications-updated", &snapshot);
     sent
 }
+
+/// Demande la suppression de toutes les notifications actives sur Android et vide la liste côté PC.
+pub fn dismiss_all_notifications(
+    state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+) -> usize {
+    let dismissed_count = {
+        let mut guard = state.lock().unwrap();
+        let keys: Vec<String> = guard
+            .notifications
+            .iter()
+            .map(|n| n.notification_key.clone())
+            .collect();
+        let count = keys.len();
+        for key in keys {
+            let payload = NotificationDismissPayload {
+                notification_key: key,
+            };
+            if let Ok(value) = serde_json::to_value(payload) {
+                guard.send_ws_message("NOTIFICATION_DISMISS", value);
+            }
+        }
+        guard.notifications.clear();
+        count
+    };
+
+    let empty: Vec<PhoneNotificationRecord> = Vec::new();
+    let _ = app_handle.emit("nexus://notifications-updated", &empty);
+    dismissed_count
+}

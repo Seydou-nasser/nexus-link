@@ -211,6 +211,15 @@ fn dismiss_notification(
     notifications::dismiss_notification(notification_key, &state, &app_handle)
 }
 
+/// Supprime toutes les notifications actives sur le téléphone et sur le PC
+#[tauri::command]
+fn dismiss_all_notifications(
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+    app_handle: AppHandle,
+) -> usize {
+    notifications::dismiss_all_notifications(&state, &app_handle)
+}
+
 /// Met à jour les paramètres de basculement souris/clavier au bord de l'écran
 #[tauri::command]
 fn update_input_settings(
@@ -469,6 +478,7 @@ pub fn run() {
             get_notifications,
             reply_to_notification,
             dismiss_notification,
+            dismiss_all_notifications,
             update_input_settings,
             start_screen_mirror,
             stop_screen_mirror,
