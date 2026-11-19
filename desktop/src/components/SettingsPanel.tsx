@@ -214,7 +214,7 @@ export function SettingsPanel({
                     Changer rapidement d&apos;onglet
                   </span>
                   <kbd className="px-2 py-0.5 rounded bg-[#14171c] border border-white/[0.1] text-[#87CFF9] font-mono-tabular text-[11px]">
-                    Alt + 1..6
+                    Alt + 1..7
                   </kbd>
                 </div>
                 <div className="flex items-center justify-between py-1">
@@ -417,8 +417,8 @@ export function SettingsPanel({
                   },
                   {
                     icon: Bell,
-                    title: "Messages SMS & Notifications",
-                    desc: "Conversations SMS temps réel, envoi depuis le PC, notifications et réponses rapides.",
+                    title: "Messages SMS, Appels & Notifications",
+                    desc: "Conversations SMS, journal d'appels, numérotation et notifications temps réel.",
                   },
                   {
                     icon: MonitorSmartphone,

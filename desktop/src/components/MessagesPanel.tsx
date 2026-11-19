@@ -19,6 +19,8 @@ import type {
 
 interface MessagesPanelProps {
   deviceId: string | null;
+  initialRecipient?: SmsContactDto | null;
+  onConsumeInitialRecipient?: () => void;
 }
 
 function getInitials(label: string): string {
@@ -77,7 +79,11 @@ function formatMessageTime(dateMs: number): string {
   })} ${timeStr}`;
 }
 
-export function MessagesPanel({ deviceId }: MessagesPanelProps) {
+export function MessagesPanel({
+  deviceId,
+  initialRecipient,
+  onConsumeInitialRecipient,
+}: MessagesPanelProps) {
   const [conversations, setConversations] = useState<SmsConversationDto[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
   const [readTimestamps, setReadTimestamps] = useState<Record<number, number>>(
@@ -170,6 +176,15 @@ export function MessagesPanel({ deviceId }: MessagesPanelProps) {
     }
     loadConversations();
   }, [deviceId, loadConversations]);
+
+  // Ouvre automatiquement un nouveau message pré-rempli lorsqu'on vient de l'onglet Appels
+  useEffect(() => {
+    if (!initialRecipient) return;
+    setComposingNew(true);
+    setSelectedRecipient(initialRecipient);
+    setRecipientInput(initialRecipient.phoneNumber);
+    onConsumeInitialRecipient?.();
+  }, [initialRecipient, onConsumeInitialRecipient]);
 
   // Charge les messages quand on change de fil
   useEffect(() => {

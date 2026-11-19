@@ -10,10 +10,12 @@ import {
   MessageSquare,
   MoreHorizontal,
   MousePointerClick,
+  Phone,
   RefreshCw,
   Settings,
 } from "lucide-react";
 import { AppModals } from "./components/AppModals";
+import { CallsPanel } from "./components/CallsPanel";
 import { ClipboardPanel } from "./components/ClipboardPanel";
 import { FileExplorerPanel } from "./components/FileExplorerPanel";
 import { GalleryPanel } from "./components/GalleryPanel";
@@ -32,11 +34,13 @@ import type {
   FileTransferRecord,
   PhoneNotificationRecord,
   ServerStatus,
+  SmsContactDto,
 } from "./types/protocol";
 import "./App.css";
 
 type TopTabId =
   | "messages"
+  | "calls"
   | "gallery"
   | "explorer"
   | "files"
@@ -84,6 +88,8 @@ function App() {
     [],
   );
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+  const [pendingSmsRecipient, setPendingSmsRecipient] =
+    useState<SmsContactDto | null>(null);
 
   const activeTabRef = useRef<TopTabId>(activeTab);
   activeTabRef.current = activeTab;
@@ -317,14 +323,16 @@ function App() {
       } else if (event.altKey && event.key === "1") {
         setActiveTab("messages");
       } else if (event.altKey && event.key === "2") {
-        setActiveTab("gallery");
+        setActiveTab("calls");
       } else if (event.altKey && event.key === "3") {
-        setActiveTab("explorer");
+        setActiveTab("gallery");
       } else if (event.altKey && event.key === "4") {
-        setActiveTab("files");
+        setActiveTab("explorer");
       } else if (event.altKey && event.key === "5") {
-        setActiveTab("clipboard");
+        setActiveTab("files");
       } else if (event.altKey && event.key === "6") {
+        setActiveTab("clipboard");
+      } else if (event.altKey && event.key === "7") {
         setActiveTab("input");
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
@@ -363,6 +371,7 @@ function App() {
     icon: React.ComponentType<{ className?: string }>;
   }[] = [
     { id: "messages", label: "Messages", icon: MessageSquare },
+    { id: "calls", label: "Appels", icon: Phone },
     { id: "gallery", label: "Galerie", icon: Images },
     { id: "explorer", label: "Explorateur", icon: HardDrive },
     { id: "files", label: "Transferts", icon: FolderSync },
@@ -466,6 +475,23 @@ function App() {
                 {activeTab === "messages" && (
                   <MessagesPanel
                     deviceId={connectedDevice?.deviceId ?? null}
+                    initialRecipient={pendingSmsRecipient}
+                    onConsumeInitialRecipient={() =>
+                      setPendingSmsRecipient(null)
+                    }
+                  />
+                )}
+
+                {activeTab === "calls" && (
+                  <CallsPanel
+                    deviceId={connectedDevice?.deviceId ?? null}
+                    onStartSms={(contactName, phoneNumber) => {
+                      setPendingSmsRecipient({
+                        name: contactName,
+                        phoneNumber,
+                      });
+                      setActiveTab("messages");
+                    }}
                   />
                 )}
 

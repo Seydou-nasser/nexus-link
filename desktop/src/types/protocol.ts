@@ -173,3 +173,12 @@ export interface SmsContactDto {
   name: string;
   phoneNumber: string;
 }
+
+export interface CallLogEntryDto {
+  id: number;
+  number: string;
+  contactName: string;
+  callType: "INCOMING" | "OUTGOING" | "MISSED" | "REJECTED";
+  dateMs: number;
+  durationSec: number;
+}
