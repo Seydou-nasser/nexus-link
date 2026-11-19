@@ -3,6 +3,11 @@ package com.nexuslink.android.network
 import android.content.Context
 import android.util.Log
 import com.nexuslink.android.media.DeleteMediaResult
+import com.nexuslink.android.media.FileExplorerManager
+import com.nexuslink.android.media.FsMkdirRequest
+import com.nexuslink.android.media.FsOpResult
+import com.nexuslink.android.media.FsRenameRequest
+import com.nexuslink.android.media.FsTransferOpRequest
 import com.nexuslink.android.media.MediaLibraryManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,8 +22,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -36,10 +42,14 @@ import java.nio.charset.StandardCharsets
 class MediaHttpServer(
     private val context: Context,
     private val mediaLibraryManager: MediaLibraryManager,
+    private val fileExplorerManager: FileExplorerManager,
     private val sessionSecretProvider: () -> String?,
     private val port: Int = DEFAULT_MEDIA_HTTP_PORT
 ) {
-    private val json = Json { encodeDefaults = true }
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
     private val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Limite la concurrence de décodage des miniatures pour préserver le CPU et la batterie
@@ -97,12 +107,10 @@ class MediaHttpServer(
         client.use { socket ->
             try {
                 socket.soTimeout = SOCKET_TIMEOUT_MS
-                val reader = BufferedReader(
-                    InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)
-                )
+                val input = BufferedInputStream(socket.getInputStream(), IO_BUFFER_SIZE)
                 val out = BufferedOutputStream(socket.getOutputStream(), IO_BUFFER_SIZE)
 
-                val requestLine = reader.readLine() ?: return
+                val requestLine = readAsciiLine(input) ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) {
                     writeSimpleResponse(out, 400, "Bad Request", "Requête invalide")
@@ -111,7 +119,7 @@ class MediaHttpServer(
 
                 val method = parts[0].uppercase()
                 val rawTarget = parts[1]
-                if (method != "GET" && method != "HEAD" && method != "DELETE") {
+                if (method != "GET" && method != "HEAD" && method != "POST" && method != "DELETE") {
                     writeSimpleResponse(out, 405, "Method Not Allowed", "Méthode non autorisée")
                     return
                 }
@@ -119,7 +127,7 @@ class MediaHttpServer(
                 // Lecture des en-têtes HTTP (clés normalisées en minuscules)
                 val headers = HashMap<String, String>()
                 while (true) {
-                    val line = reader.readLine() ?: break
+                    val line = readAsciiLine(input) ?: break
                     if (line.isEmpty()) break
                     val colon = line.indexOf(':')
                     if (colon > 0) {
@@ -139,17 +147,34 @@ class MediaHttpServer(
                     return
                 }
 
+                val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
+
                 when {
                     method == "DELETE" && path.startsWith("/media/file/") -> handleDeleteFile(out, path)
+                    method == "DELETE" && path == "/fs/delete" -> handleFsDelete(out, queryParams)
                     method == "DELETE" -> writeSimpleResponse(out, 405, "Method Not Allowed", "Suppression non supportée sur cette route")
+
+                    method == "POST" && path == "/fs/upload" -> handleFsUpload(input, out, queryParams, contentLength)
+                    method == "POST" && path == "/fs/mkdir" -> handleFsMkdir(input, out, contentLength)
+                    method == "POST" && path == "/fs/rename" -> handleFsRename(input, out, contentLength)
+                    method == "POST" && path == "/fs/move" -> handleFsMove(input, out, contentLength)
+                    method == "POST" && path == "/fs/copy" -> handleFsCopy(input, out, contentLength)
+                    method == "POST" -> writeSimpleResponse(out, 404, "Not Found", "Route POST introuvable")
+
                     path == "/media/folders" -> handleFolders(out, method == "HEAD")
                     path == "/media/items" -> handleItems(out, queryParams, method == "HEAD")
                     path.startsWith("/media/thumb/") -> handleThumb(out, path, method == "HEAD")
                     path.startsWith("/media/file/") -> handleFile(out, path, headers["range"], method == "HEAD")
+
+                    path == "/fs/info" -> handleFsInfo(out, method == "HEAD")
+                    path == "/fs/list" -> handleFsList(out, queryParams, method == "HEAD")
+                    path == "/fs/search" -> handleFsSearch(out, queryParams, method == "HEAD")
+                    path == "/fs/download" -> handleFsDownload(out, queryParams, method == "HEAD")
+
                     else -> writeSimpleResponse(out, 404, "Not Found", "Route introuvable")
                 }
             } catch (e: Exception) {
-                Log.d(TAG, "Connexion client galerie interrompue : ${e.message}")
+                Log.d(TAG, "Connexion client interrompue : ${e.message}")
             }
         }
     }
@@ -416,6 +441,298 @@ class MediaHttpServer(
             if (end < start) return null
             start to end
         }
+    }
+
+    private fun handleFsInfo(out: OutputStream, headOnly: Boolean) {
+        val info = fileExplorerManager.getStorageInfo()
+        val body = json.encodeToString(info).toByteArray(StandardCharsets.UTF_8)
+        writeBytesResponse(
+            out = out,
+            statusCode = 200,
+            reason = "OK",
+            contentType = "application/json; charset=utf-8",
+            body = body,
+            extraHeaders = mapOf("Cache-Control" to "no-store"),
+            headOnly = headOnly
+        )
+    }
+
+    private fun handleFsList(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        when (val result = fileExplorerManager.listDirectory(queryParams["path"])) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsSearch(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val query = queryParams["q"] ?: ""
+        when (val result = fileExplorerManager.searchEntries(queryParams["path"], query)) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsDownload(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val path = queryParams["path"]
+        if (path.isNullOrBlank()) {
+            writeSimpleResponse(out, 400, "Bad Request", "Paramètre path manquant")
+            return
+        }
+        when (val result = fileExplorerManager.resolveFileForDownload(path)) {
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+            is FsOpResult.Success -> {
+                val file = result.value
+                val safeName = file.name.replace("\"", "_")
+                val headerBuilder = StringBuilder().apply {
+                    append("HTTP/1.1 200 OK\r\n")
+                    append("Content-Type: application/octet-stream\r\n")
+                    append("Content-Disposition: attachment; filename=\"$safeName\"\r\n")
+                    append("Content-Length: ${file.length()}\r\n")
+                    append("Connection: close\r\n\r\n")
+                }
+                out.write(headerBuilder.toString().toByteArray(StandardCharsets.US_ASCII))
+                if (headOnly) {
+                    out.flush()
+                    return
+                }
+                BufferedInputStream(FileInputStream(file), IO_BUFFER_SIZE).use { fileIn ->
+                    val buffer = ByteArray(IO_BUFFER_SIZE)
+                    while (true) {
+                        val read = fileIn.read(buffer)
+                        if (read <= 0) break
+                        out.write(buffer, 0, read)
+                    }
+                    out.flush()
+                }
+            }
+        }
+    }
+
+    private fun handleFsUpload(
+        input: BufferedInputStream,
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        contentLength: Long
+    ) {
+        val dir = queryParams["dir"] ?: ""
+        val name = queryParams["name"]
+        if (name.isNullOrBlank()) {
+            writeSimpleResponse(out, 400, "Bad Request", "Nom de fichier manquant")
+            return
+        }
+        when (val result = fileExplorerManager.createUploadTargetFile(dir, name)) {
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+            is FsOpResult.Success -> {
+                val destFile = result.value
+                try {
+                    FileOutputStream(destFile).use { fileOut ->
+                        val buffer = ByteArray(IO_BUFFER_SIZE)
+                        var remaining = contentLength
+                        while (remaining > 0L) {
+                            val toRead = minOf(buffer.size.toLong(), remaining).toInt()
+                            val read = input.read(buffer, 0, toRead)
+                            if (read <= 0) break
+                            fileOut.write(buffer, 0, read)
+                            remaining -= read
+                        }
+                        fileOut.flush()
+                    }
+                    fileExplorerManager.notifyFileAdded(destFile)
+                    writeSimpleResponse(out, 200, "OK", destFile.name)
+                } catch (e: Exception) {
+                    destFile.delete()
+                    Log.e(TAG, "Erreur réception upload ${destFile.path}", e)
+                    writeSimpleResponse(out, 500, "Internal Server Error", "Erreur lors de l'enregistrement")
+                }
+            }
+        }
+    }
+
+    private fun handleFsMkdir(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<FsMkdirRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = fileExplorerManager.createDirectory(req.parentPath, req.name)) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(out, 200, "OK", "application/json; charset=utf-8", body, emptyMap(), false)
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsRename(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<FsRenameRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = fileExplorerManager.renameEntry(req.path, req.newName)) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(out, 200, "OK", "application/json; charset=utf-8", body, emptyMap(), false)
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsMove(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<FsTransferOpRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = fileExplorerManager.moveEntry(req.sourcePath, req.targetDir)) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(out, 200, "OK", "application/json; charset=utf-8", body, emptyMap(), false)
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsCopy(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<FsTransferOpRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = fileExplorerManager.copyEntry(req.sourcePath, req.targetDir)) {
+            is FsOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(out, 200, "OK", "application/json; charset=utf-8", body, emptyMap(), false)
+            }
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleFsDelete(out: OutputStream, queryParams: Map<String, String>) {
+        val path = queryParams["path"]
+        if (path.isNullOrBlank()) {
+            writeSimpleResponse(out, 400, "Bad Request", "Paramètre path manquant")
+            return
+        }
+        when (val result = fileExplorerManager.deleteEntry(path)) {
+            is FsOpResult.Success -> writeSimpleResponse(out, 200, "OK", "Supprimé")
+            is FsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun readAsciiLine(input: BufferedInputStream): String? {
+        val out = ByteArrayOutputStream(128)
+        var gotAny = false
+        while (true) {
+            val b = input.read()
+            if (b < 0) {
+                return if (gotAny) out.toString(StandardCharsets.US_ASCII.name()) else null
+            }
+            gotAny = true
+            if (b == '\n'.code) break
+            if (b != '\r'.code) {
+                out.write(b)
+            }
+        }
+        return out.toString(StandardCharsets.US_ASCII.name())
+    }
+
+    private fun readUtf8Body(input: BufferedInputStream, contentLength: Long): String {
+        val maxJsonBytes = minOf(contentLength.coerceAtLeast(0L), 256L * 1024L).toInt()
+        if (maxJsonBytes == 0) return ""
+        val bytes = ByteArray(maxJsonBytes)
+        var offset = 0
+        while (offset < maxJsonBytes) {
+            val read = input.read(bytes, offset, maxJsonBytes - offset)
+            if (read <= 0) break
+            offset += read
+        }
+        return String(bytes, 0, offset, StandardCharsets.UTF_8)
+    }
+
+    private fun httpReason(code: Int): String = when (code) {
+        400 -> "Bad Request"
+        401 -> "Unauthorized"
+        403 -> "Forbidden"
+        404 -> "Not Found"
+        409 -> "Conflict"
+        else -> "Internal Server Error"
     }
 
     private fun parsePathAndQuery(rawTarget: String): Pair<String, Map<String, String>> {

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
 import com.nexuslink.android.data.PairingStore
+import com.nexuslink.android.media.FileExplorerManager
 import com.nexuslink.android.media.MediaLibraryManager
 import com.nexuslink.android.network.AndroidTransferRecord
 import com.nexuslink.android.network.ConnectionState
@@ -55,6 +56,7 @@ class ConnectionForegroundService : Service() {
     private lateinit var webSocketClient: NexusWebSocketClient
     private lateinit var udpInputReceiver: UdpInputReceiver
     private lateinit var mediaLibraryManager: MediaLibraryManager
+    private lateinit var fileExplorerManager: FileExplorerManager
     private lateinit var mediaHttpServer: MediaHttpServer
 
     val connectionState: StateFlow<ConnectionState>
@@ -155,9 +157,11 @@ class ConnectionForegroundService : Service() {
         udpInputReceiver.start()
 
         mediaLibraryManager = MediaLibraryManager(this)
+        fileExplorerManager = FileExplorerManager(this)
         mediaHttpServer = MediaHttpServer(
             context = this,
             mediaLibraryManager = mediaLibraryManager,
+            fileExplorerManager = fileExplorerManager,
             sessionSecretProvider = { webSocketClient.activeSessionSecret() }
         )
         mediaHttpServer.start()
