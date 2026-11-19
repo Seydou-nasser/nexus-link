@@ -12,11 +12,13 @@ import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.CallLog
 import android.provider.Telephony
 import androidx.core.app.NotificationCompat
 import com.nexuslink.android.MainActivity
 import com.nexuslink.android.R
 import com.nexuslink.android.data.PairingStore
+import com.nexuslink.android.media.CallLogManager
 import com.nexuslink.android.media.FileExplorerManager
 import com.nexuslink.android.media.MediaLibraryManager
 import com.nexuslink.android.media.SmsManagerBridge
@@ -63,12 +65,19 @@ class ConnectionForegroundService : Service() {
     private lateinit var mediaLibraryManager: MediaLibraryManager
     private lateinit var fileExplorerManager: FileExplorerManager
     private lateinit var smsManagerBridge: SmsManagerBridge
+    private lateinit var callLogManager: CallLogManager
     private lateinit var mediaHttpServer: MediaHttpServer
     private var smsObserver: ContentObserver? = null
+    private var callsObserver: ContentObserver? = null
     private val smsNotifyHandler = Handler(Looper.getMainLooper())
     private val smsNotifyRunnable = Runnable {
         if (connectionState.value is ConnectionState.Connected) {
             webSocketClient.sendSmsUpdated()
+        }
+    }
+    private val callsNotifyRunnable = Runnable {
+        if (connectionState.value is ConnectionState.Connected) {
+            webSocketClient.sendCallsUpdated()
         }
     }
 
@@ -172,11 +181,13 @@ class ConnectionForegroundService : Service() {
         mediaLibraryManager = MediaLibraryManager(this)
         fileExplorerManager = FileExplorerManager(this)
         smsManagerBridge = SmsManagerBridge(this)
+        callLogManager = CallLogManager(this)
         mediaHttpServer = MediaHttpServer(
             context = this,
             mediaLibraryManager = mediaLibraryManager,
             fileExplorerManager = fileExplorerManager,
             smsManagerBridge = smsManagerBridge,
+            callLogManager = callLogManager,
             sessionSecretProvider = { webSocketClient.activeSessionSecret() }
         )
         mediaHttpServer.start()
@@ -190,6 +201,18 @@ class ConnectionForegroundService : Service() {
         try {
             contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, observer)
             smsObserver = observer
+        } catch (_: Exception) {
+        }
+
+        val callObs = object : ContentObserver(smsNotifyHandler) {
+            override fun onChange(selfChange: Boolean) {
+                smsNotifyHandler.removeCallbacks(callsNotifyRunnable)
+                smsNotifyHandler.postDelayed(callsNotifyRunnable, 400L)
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, callObs)
+            callsObserver = callObs
         } catch (_: Exception) {
         }
 
@@ -266,7 +289,15 @@ class ConnectionForegroundService : Service() {
             }
         }
         smsObserver = null
+        callsObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Exception) {
+            }
+        }
+        callsObserver = null
         smsNotifyHandler.removeCallbacks(smsNotifyRunnable)
+        smsNotifyHandler.removeCallbacks(callsNotifyRunnable)
         mediaHttpServer.shutdown()
         screenshotObserver.stop()
         deviceStatusMonitor.stop()

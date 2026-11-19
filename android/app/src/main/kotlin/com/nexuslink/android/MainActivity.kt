@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private var isNotificationAccessEnabled by mutableStateOf(false)
     private var isAllFilesAccessEnabled by mutableStateOf(false)
     private var isSmsPermissionsEnabled by mutableStateOf(false)
+    private var isCallPermissionsEnabled by mutableStateOf(false)
     private var uiErrorMessage: String? by mutableStateOf(null)
 
     private val fallbackConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -93,6 +94,12 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
         isSmsPermissionsEnabled = hasAllSmsPermissions()
+    }
+
+    private val requestCallPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        isCallPermissionsEnabled = hasAllCallPermissions()
     }
 
     private val pickFilesLauncher = registerForActivityResult(
@@ -141,6 +148,7 @@ class MainActivity : ComponentActivity() {
                             isNotificationAccessEnabled = isNotificationAccessEnabled,
                             isAllFilesAccessEnabled = isAllFilesAccessEnabled,
                             isSmsPermissionsEnabled = isSmsPermissionsEnabled,
+                            isCallPermissionsEnabled = isCallPermissionsEnabled,
                             errorMessage = uiErrorMessage,
                             onOpenQrScanner = { openQrScannerWithPermission() },
                             onSelectDiscoveredHost = { host ->
@@ -170,6 +178,14 @@ class MainActivity : ComponentActivity() {
                                     )
                                 )
                             },
+                            onRequestCallPermissions = {
+                                requestCallPermissionsLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.READ_CALL_LOG,
+                                        Manifest.permission.CALL_PHONE
+                                    )
+                                )
+                            },
                             onRefreshDiscovery = { connectionService?.restartDiscovery() },
                             onDisconnect = {
                                 uiErrorMessage = null
@@ -192,6 +208,7 @@ class MainActivity : ComponentActivity() {
             true
         }
         isSmsPermissionsEnabled = hasAllSmsPermissions()
+        isCallPermissionsEnabled = hasAllCallPermissions()
     }
 
     private fun hasAllSmsPermissions(): Boolean {
@@ -199,6 +216,16 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.READ_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CONTACTS
+        )
+        return perms.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun hasAllCallPermissions(): Boolean {
+        val perms = arrayOf(
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.CALL_PHONE
         )
         return perms.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED

@@ -2,6 +2,9 @@ package com.nexuslink.android.network
 
 import android.content.Context
 import android.util.Log
+import com.nexuslink.android.media.CallDialRequest
+import com.nexuslink.android.media.CallLogManager
+import com.nexuslink.android.media.CallOpResult
 import com.nexuslink.android.media.DeleteMediaResult
 import com.nexuslink.android.media.FileExplorerManager
 import com.nexuslink.android.media.FsMkdirRequest
@@ -47,6 +50,7 @@ class MediaHttpServer(
     private val mediaLibraryManager: MediaLibraryManager,
     private val fileExplorerManager: FileExplorerManager,
     private val smsManagerBridge: SmsManagerBridge,
+    private val callLogManager: CallLogManager,
     private val sessionSecretProvider: () -> String?,
     private val port: Int = DEFAULT_MEDIA_HTTP_PORT
 ) {
@@ -164,6 +168,7 @@ class MediaHttpServer(
                     method == "POST" && path == "/fs/move" -> handleFsMove(input, out, contentLength)
                     method == "POST" && path == "/fs/copy" -> handleFsCopy(input, out, contentLength)
                     method == "POST" && path == "/sms/send" -> handleSmsSend(input, out, contentLength)
+                    method == "POST" && path == "/calls/dial" -> handleCallDial(input, out, contentLength)
                     method == "POST" -> writeSimpleResponse(out, 404, "Not Found", "Route POST introuvable")
 
                     path == "/media/folders" -> handleFolders(out, method == "HEAD")
@@ -179,6 +184,8 @@ class MediaHttpServer(
                     path == "/sms/conversations" -> handleSmsConversations(out, queryParams, method == "HEAD")
                     path == "/sms/messages" -> handleSmsMessages(out, queryParams, method == "HEAD")
                     path == "/sms/contacts" -> handleSmsContacts(out, queryParams, method == "HEAD")
+
+                    path == "/calls/history" -> handleCallsHistory(out, queryParams, method == "HEAD")
 
                     else -> writeSimpleResponse(out, 404, "Not Found", "Route introuvable")
                 }
@@ -796,6 +803,51 @@ class MediaHttpServer(
         when (val result = smsManagerBridge.sendSms(req.address, req.body)) {
             is SmsOpResult.Success -> writeSimpleResponse(out, 200, "OK", "Envoyé")
             is SmsOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleCallsHistory(
+        out: OutputStream,
+        queryParams: Map<String, String>,
+        headOnly: Boolean
+    ) {
+        val limit = queryParams["limit"]?.toIntOrNull() ?: 100
+        when (val result = callLogManager.listCalls(limit)) {
+            is CallOpResult.Success -> {
+                val body = json.encodeToString(result.value).toByteArray(StandardCharsets.UTF_8)
+                writeBytesResponse(
+                    out = out,
+                    statusCode = 200,
+                    reason = "OK",
+                    contentType = "application/json; charset=utf-8",
+                    body = body,
+                    extraHeaders = mapOf("Cache-Control" to "no-store"),
+                    headOnly = headOnly
+                )
+            }
+            is CallOpResult.Error -> {
+                writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
+            }
+        }
+    }
+
+    private fun handleCallDial(
+        input: BufferedInputStream,
+        out: OutputStream,
+        contentLength: Long
+    ) {
+        val bodyStr = readUtf8Body(input, contentLength)
+        val req = try {
+            json.decodeFromString<CallDialRequest>(bodyStr)
+        } catch (_: Exception) {
+            writeSimpleResponse(out, 400, "Bad Request", "Corps JSON invalide")
+            return
+        }
+        when (val result = callLogManager.dialNumber(req.number)) {
+            is CallOpResult.Success -> writeSimpleResponse(out, 200, "OK", "Appel lancé")
+            is CallOpResult.Error -> {
                 writeSimpleResponse(out, result.httpStatus, httpReason(result.httpStatus), result.message)
             }
         }

@@ -148,6 +148,10 @@ class NexusWebSocketClient(
         return sendEnvelope("SMS_UPDATED", JsonObject(emptyMap()))
     }
 
+    fun sendCallsUpdated(): Boolean {
+        return sendEnvelope("CALLS_UPDATED", JsonObject(emptyMap()))
+    }
+
     fun sendInputFocusState(activeTarget: String): Boolean {
         val payload = InputFocusStatePayload(activeTarget = activeTarget)
         return sendEnvelope("INPUT_FOCUS_STATE", json.encodeToJsonElement(payload))

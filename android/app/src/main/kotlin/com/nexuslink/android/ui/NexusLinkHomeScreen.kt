@@ -82,6 +82,7 @@ fun NexusLinkHomeScreen(
     isNotificationAccessEnabled: Boolean,
     isAllFilesAccessEnabled: Boolean,
     isSmsPermissionsEnabled: Boolean,
+    isCallPermissionsEnabled: Boolean,
     errorMessage: String?,
     onOpenQrScanner: () -> Unit,
     onSelectDiscoveredHost: (DiscoveredDesktopHost) -> Unit,
@@ -91,6 +92,7 @@ fun NexusLinkHomeScreen(
     onOpenNotificationAccessSettings: () -> Unit,
     onOpenAllFilesAccessSettings: () -> Unit,
     onRequestSmsPermissions: () -> Unit,
+    onRequestCallPermissions: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier
@@ -348,6 +350,22 @@ fun NexusLinkHomeScreen(
                     showChevron = !isSmsPermissionsEnabled,
                     onClick = {
                         if (!isSmsPermissionsEnabled) onRequestSmsPermissions()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                BottomNavigationTile(
+                    title = "Journal d'appels",
+                    subtitle = if (isCallPermissionsEnabled) {
+                        "Actif • Historique et lancement d'appels autorisés"
+                    } else {
+                        "Inactif • Appuyez pour autoriser les appels"
+                    },
+                    iconType = QuickIconType.BELL,
+                    showChevron = !isCallPermissionsEnabled,
+                    onClick = {
+                        if (!isCallPermissionsEnabled) onRequestCallPermissions()
                     }
                 )
             } else if (connectionState !is ConnectionState.WaitingApproval) {
