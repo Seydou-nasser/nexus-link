@@ -55,6 +55,14 @@ pub async fn start_http_file_server(state: Arc<Mutex<NetworkState>>, app_handle:
         .route("/api/v1/files/download/{file_id}", get(handle_download))
         .route("/api/v1/screen/frame", post(handle_screen_frame_upload))
         .route("/api/v1/screen/stream", get(handle_screen_stream))
+        .route(
+            "/api/v1/media/thumb/{media_type}/{media_id}",
+            get(handle_media_thumb),
+        )
+        .route(
+            "/api/v1/media/file/{media_type}/{media_id}",
+            get(handle_media_file),
+        )
         // Autorise le streaming de gros fichiers sans limite par défaut d'Axum (2 Mo)
         .layer(DefaultBodyLimit::disable())
         .with_state(shared);
@@ -497,4 +505,21 @@ async fn handle_screen_stream(
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from_stream(stream))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Relais HTTP local des miniatures de la galerie Android (avec cache mémoire PC)
+async fn handle_media_thumb(
+    State(state): State<HttpServerState>,
+    path: AxumPath<(String, i64)>,
+) -> Response {
+    crate::media_gallery::proxy_media_thumb(path, Arc::clone(&state.network)).await
+}
+
+/// Relais HTTP streaming (Range / 206) des photos et vidéos originales depuis Android
+async fn handle_media_file(
+    State(state): State<HttpServerState>,
+    path: AxumPath<(String, i64)>,
+    headers: HeaderMap,
+) -> Response {
+    crate::media_gallery::proxy_media_file(path, headers, Arc::clone(&state.network)).await
 }

@@ -1,6 +1,7 @@
 pub mod clipboard;
 pub mod file_server;
 pub mod input_hook;
+pub mod media_gallery;
 pub mod network;
 pub mod notifications;
 pub mod protocol;
@@ -381,6 +382,50 @@ fn send_mirror_input(
     true
 }
 
+/// Liste les dossiers (albums) de la galerie photos/vidéos du téléphone connecté
+#[tauri::command]
+async fn get_media_folders(
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<Vec<media_gallery::MediaFolderDto>, String> {
+    let network = Arc::clone(state.inner());
+    media_gallery::fetch_media_folders(&network).await
+}
+
+/// Liste une page de médias (photos et vidéos) récents ou d'un dossier précis
+#[tauri::command]
+async fn get_media_items(
+    bucket_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<media_gallery::MediaPageResponse, String> {
+    let network = Arc::clone(state.inner());
+    media_gallery::fetch_media_items(&network, bucket_id, limit, offset).await
+}
+
+/// Télécharge une photo ou vidéo du téléphone vers Téléchargements/NexusLink
+#[tauri::command]
+async fn download_media_to_pc(
+    media_id: i64,
+    media_type: String,
+    display_name: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<String, String> {
+    let network = Arc::clone(state.inner());
+    media_gallery::download_media_to_pc(&network, media_id, &media_type, &display_name).await
+}
+
+/// Supprime directement une photo ou vidéo sur le téléphone Android connecté
+#[tauri::command]
+async fn delete_media_on_phone(
+    media_id: i64,
+    media_type: String,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<(), String> {
+    let network = Arc::clone(state.inner());
+    media_gallery::delete_media_on_phone(&network, media_id, &media_type).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -483,7 +528,11 @@ pub fn run() {
             start_screen_mirror,
             stop_screen_mirror,
             focus_mirror_window,
-            send_mirror_input
+            send_mirror_input,
+            get_media_folders,
+            get_media_items,
+            download_media_to_pc,
+            delete_media_on_phone
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
