@@ -1,3 +1,4 @@
+pub mod audio_sink;
 pub mod calls;
 pub mod clipboard;
 pub mod file_explorer;
@@ -667,6 +668,34 @@ async fn calls_dial_number(
     calls::calls_dial_number(&network, number).await
 }
 
+/// Renvoie l'état du récepteur audio Bluetooth Windows (AudioPlaybackConnection)
+#[tauri::command]
+async fn bt_audio_status() -> Result<audio_sink::BluetoothAudioStatus, String> {
+    audio_sink::bt_audio_status().await
+}
+
+/// Active la réception audio Bluetooth A2DP du téléphone sur les haut-parleurs du PC
+#[tauri::command]
+async fn bt_audio_connect(
+    device_id: Option<String>,
+    state: State<'_, Arc<Mutex<NetworkState>>>,
+) -> Result<audio_sink::BluetoothAudioStatus, String> {
+    let preferred_name = {
+        let guard = state.lock().unwrap();
+        guard
+            .connected_device
+            .as_ref()
+            .map(|d| d.device_name.clone())
+    };
+    audio_sink::bt_audio_connect(device_id, preferred_name).await
+}
+
+/// Coupe la réception audio Bluetooth A2DP sur le PC
+#[tauri::command]
+async fn bt_audio_disconnect() -> Result<audio_sink::BluetoothAudioStatus, String> {
+    audio_sink::bt_audio_disconnect().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
@@ -790,7 +819,10 @@ pub fn run() {
             sms_search_contacts,
             sms_send,
             calls_list_history,
-            calls_dial_number
+            calls_dial_number,
+            bt_audio_status,
+            bt_audio_connect,
+            bt_audio_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
