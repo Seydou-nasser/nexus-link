@@ -30,6 +30,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { TitleBar } from "./components/TitleBar";
 import { TransfersPanel } from "./components/TransfersPanel";
 import type {
+  BluetoothAudioStatus,
   ClipboardHistoryEntry,
   FileTransferRecord,
   PhoneNotificationRecord,
@@ -90,6 +91,11 @@ function App() {
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [pendingSmsRecipient, setPendingSmsRecipient] =
     useState<SmsContactDto | null>(null);
+  const [btAudioStatus, setBtAudioStatus] =
+    useState<BluetoothAudioStatus | null>(null);
+  const [btAudioBusy, setBtAudioBusy] = useState<boolean>(false);
+  const [btAudioError, setBtAudioError] = useState<string | null>(null);
+  const [btAudioModalOpen, setBtAudioModalOpen] = useState<boolean>(false);
 
   const activeTabRef = useRef<TopTabId>(activeTab);
   activeTabRef.current = activeTab;
@@ -189,6 +195,52 @@ function App() {
     }
   };
 
+  const refreshBtAudioStatus = useCallback(async () => {
+    try {
+      const next = await invoke<BluetoothAudioStatus>("bt_audio_status");
+      setBtAudioStatus(next);
+      setBtAudioError(null);
+    } catch (error) {
+      console.error("Impossible de lire le statut audio Bluetooth :", error);
+    }
+  }, []);
+
+  const handleConnectBtAudio = async (deviceId?: string) => {
+    if (btAudioBusy) return;
+    setBtAudioBusy(true);
+    setBtAudioError(null);
+    try {
+      const next = await invoke<BluetoothAudioStatus>("bt_audio_connect", {
+        deviceId: deviceId ?? null,
+      });
+      setBtAudioStatus(next);
+    } catch (error) {
+      setBtAudioError(String(error));
+    } finally {
+      setBtAudioBusy(false);
+    }
+  };
+
+  const handleDisconnectBtAudio = async () => {
+    if (btAudioBusy) return;
+    setBtAudioBusy(true);
+    setBtAudioError(null);
+    try {
+      const next = await invoke<BluetoothAudioStatus>("bt_audio_disconnect");
+      setBtAudioStatus(next);
+    } catch (error) {
+      setBtAudioError(String(error));
+    } finally {
+      setBtAudioBusy(false);
+    }
+  };
+
+  const handleOpenBtAudioModal = () => {
+    setBtAudioError(null);
+    setBtAudioModalOpen(true);
+    refreshBtAudioStatus();
+  };
+
   const handleReplyNotification = async (
     notificationKey: string,
     replyText: string,
@@ -253,6 +305,7 @@ function App() {
 
   useEffect(() => {
     fetchServerStatus();
+    refreshBtAudioStatus();
     invoke<ClipboardHistoryEntry[]>("get_clipboard_history")
       .then(setClipboardHistory)
       .catch(() => {});
@@ -337,6 +390,7 @@ function App() {
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
         setDisconnectConfirmOpen(false);
+        setBtAudioModalOpen(false);
       }
     };
 
@@ -389,11 +443,20 @@ function App() {
           connectedDevice={connectedDevice}
           notifications={notifications}
           isRingingPhone={isRingingPhone}
+          btAudioStatus={btAudioStatus}
+          btAudioBusy={btAudioBusy}
+          btAudioError={btAudioError}
+          onOpenBtAudioModal={handleOpenBtAudioModal}
+          onDisconnectBtAudio={handleDisconnectBtAudio}
+          onDismissBtAudioError={() => setBtAudioError(null)}
           onOpenMirror={handleOpenMirror}
           onToggleRingPhone={handleToggleRingPhone}
           onPickFiles={() => invoke("pick_and_send_files")}
           onRequestDisconnect={() => setDisconnectConfirmOpen(true)}
-          onRefreshStatus={fetchServerStatus}
+          onRefreshStatus={() => {
+            fetchServerStatus();
+            refreshBtAudioStatus();
+          }}
           onReplyNotification={handleReplyNotification}
           onDismissNotification={handleDismissNotification}
           onDismissAllNotifications={handleDismissAllNotifications}
@@ -558,6 +621,12 @@ function App() {
                 {activeTab === "settings" && (
                   <SettingsPanel
                     status={status}
+                    btAudioStatus={btAudioStatus}
+                    btAudioBusy={btAudioBusy}
+                    btAudioError={btAudioError}
+                    onRefreshBtAudio={refreshBtAudioStatus}
+                    onConnectBtAudioDevice={(id) => handleConnectBtAudio(id)}
+                    onDisconnectBtAudio={handleDisconnectBtAudio}
                     onRegenerateToken={handleRegenerateToken}
                     onRequestDisconnect={() => setDisconnectConfirmOpen(true)}
                     onOpenDownloadsFolder={() =>
@@ -576,6 +645,15 @@ function App() {
         connectedDevice={connectedDevice}
         disconnectConfirmOpen={disconnectConfirmOpen}
         commandPaletteOpen={commandPaletteOpen}
+        btAudioModalOpen={btAudioModalOpen}
+        btAudioStatus={btAudioStatus}
+        btAudioBusy={btAudioBusy}
+        btAudioError={btAudioError}
+        onCloseBtAudioModal={() => setBtAudioModalOpen(false)}
+        onRefreshBtAudio={refreshBtAudioStatus}
+        onConnectBtAudioDevice={(id) => handleConnectBtAudio(id)}
+        onDisconnectBtAudio={handleDisconnectBtAudio}
+        onOpenBtAudioModal={handleOpenBtAudioModal}
         onRespondToPairing={handleRespondToPairing}
         onCloseDisconnectConfirm={() => setDisconnectConfirmOpen(false)}
         onConfirmDisconnect={async () => {

@@ -5,6 +5,8 @@ import {
   Bell,
   Check,
   FileUp,
+  Headphones,
+  Loader2,
   MonitorPlay,
   RefreshCw,
   Send,
@@ -15,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  BluetoothAudioStatus,
   ConnectedDevice,
   PhoneNotificationRecord,
   ServerStatus,
@@ -25,6 +28,12 @@ interface PhoneSidebarProps {
   connectedDevice: ConnectedDevice | null;
   notifications: PhoneNotificationRecord[];
   isRingingPhone: boolean;
+  btAudioStatus: BluetoothAudioStatus | null;
+  btAudioBusy: boolean;
+  btAudioError: string | null;
+  onOpenBtAudioModal: () => void;
+  onDisconnectBtAudio: () => void;
+  onDismissBtAudioError: () => void;
   onOpenMirror: () => void;
   onToggleRingPhone: () => void;
   onPickFiles: () => void;
@@ -91,6 +100,12 @@ export function PhoneSidebar({
   connectedDevice,
   notifications,
   isRingingPhone,
+  btAudioStatus,
+  btAudioBusy,
+  btAudioError,
+  onOpenBtAudioModal,
+  onDisconnectBtAudio,
+  onDismissBtAudioError,
   onOpenMirror,
   onToggleRingPhone,
   onPickFiles,
@@ -200,59 +215,116 @@ export function PhoneSidebar({
         </div>
       </div>
 
-      {/* 2. Rangée de 4 boutons d'actions rapides */}
-      <div className="grid grid-cols-4 gap-2 pb-4 border-b border-white/[0.07]">
-        <button
-          type="button"
-          disabled={!isConnected}
-          onClick={onOpenMirror}
-          title="Écran du téléphone"
-          className={`h-8 rounded-md border flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
-            isMirrorActive
-              ? "bg-[#87CFF9] text-[#09202c] border-[#87CFF9]"
-              : "bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border-white/[0.08]"
-          }`}
-        >
-          <MonitorPlay className="w-4 h-4" />
-        </button>
+      {/* 2. Rangée de 5 boutons d'actions rapides */}
+      <div className="pb-4 border-b border-white/[0.07] space-y-2">
+        <div className="grid grid-cols-5 gap-1.5">
+          <button
+            type="button"
+            disabled={!isConnected}
+            onClick={onOpenMirror}
+            title="Écran du téléphone"
+            className={`h-8 rounded-md border flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
+              isMirrorActive
+                ? "bg-[#87CFF9] text-[#09202c] border-[#87CFF9]"
+                : "bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border-white/[0.08]"
+            }`}
+          >
+            <MonitorPlay className="w-4 h-4" />
+          </button>
 
-        <button
-          type="button"
-          disabled={!isConnected}
-          onClick={onToggleRingPhone}
-          title={
-            isRingingPhone
-              ? "Arrêter la sonnerie"
-              : "Faire sonner mon téléphone"
-          }
-          className={`h-8 rounded-md border flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
-            isRingingPhone
-              ? "bg-[#87CFF9] text-[#09202c] border-[#87CFF9]"
-              : "bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border-white/[0.08]"
-          }`}
-        >
-          <Volume2 className="w-4 h-4" />
-        </button>
+          <button
+            type="button"
+            disabled={btAudioBusy}
+            onClick={onOpenBtAudioModal}
+            title={
+              btAudioStatus?.active
+                ? `Audio sur PC actif (${btAudioStatus.activeDeviceName ?? "Bluetooth"}) — Cliquer pour gérer`
+                : "Audio du téléphone sur PC (choisir un appareil Bluetooth)"
+            }
+            className={`h-8 rounded-md border flex items-center justify-center transition cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
+              btAudioStatus?.active
+                ? "bg-[#87CFF9] text-[#09202c] border-[#87CFF9] shadow-[0_0_10px_rgba(135,207,249,0.28)]"
+                : "bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border-white/[0.08]"
+            }`}
+          >
+            {btAudioBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Headphones className="w-4 h-4" />
+            )}
+          </button>
 
-        <button
-          type="button"
-          disabled={!isConnected}
-          onClick={onPickFiles}
-          title="Envoyer des fichiers"
-          className="h-8 rounded-md bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border border-white/[0.08] flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
-        >
-          <FileUp className="w-4 h-4" />
-        </button>
+          <button
+            type="button"
+            disabled={!isConnected}
+            onClick={onToggleRingPhone}
+            title={
+              isRingingPhone
+                ? "Arrêter la sonnerie"
+                : "Faire sonner mon téléphone"
+            }
+            className={`h-8 rounded-md border flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
+              isRingingPhone
+                ? "bg-[#87CFF9] text-[#09202c] border-[#87CFF9]"
+                : "bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border-white/[0.08]"
+            }`}
+          >
+            <Volume2 className="w-4 h-4" />
+          </button>
 
-        <button
-          type="button"
-          disabled={!isConnected}
-          onClick={onRequestDisconnect}
-          title="Déconnecter l'appareil"
-          className="h-8 rounded-md bg-white/[0.05] hover:bg-rose-500/20 text-[#d6e4ee] hover:text-rose-300 border border-white/[0.08] hover:border-rose-500/30 flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
-        >
-          <Unplug className="w-4 h-4" />
-        </button>
+          <button
+            type="button"
+            disabled={!isConnected}
+            onClick={onPickFiles}
+            title="Envoyer des fichiers"
+            className="h-8 rounded-md bg-white/[0.05] hover:bg-white/[0.1] text-[#d6e4ee] border border-white/[0.08] flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+          >
+            <FileUp className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            disabled={!isConnected}
+            onClick={onRequestDisconnect}
+            title="Déconnecter l'appareil"
+            className="h-8 rounded-md bg-white/[0.05] hover:bg-rose-500/20 text-[#d6e4ee] hover:text-rose-300 border border-white/[0.08] hover:border-rose-500/30 flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+          >
+            <Unplug className="w-4 h-4" />
+          </button>
+        </div>
+
+        {btAudioStatus?.active && (
+          <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#005C7D]/45 border border-[#87CFF9]/30 text-[11px] text-[#d8f1ff]">
+            <span className="flex items-center gap-1.5 min-w-0 truncate">
+              <Headphones className="w-3.5 h-3.5 text-[#87CFF9] shrink-0" />
+              <span className="truncate">
+                Audio PC : {btAudioStatus.activeDeviceName ?? "Bluetooth"}
+              </span>
+            </span>
+            <button
+              type="button"
+              disabled={btAudioBusy}
+              onClick={onDisconnectBtAudio}
+              className="text-[10.5px] font-medium text-[#87CFF9] hover:text-white shrink-0 cursor-pointer"
+            >
+              Couper
+            </button>
+          </div>
+        )}
+
+        {btAudioError && (
+          <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-200 leading-snug">
+            <span className="flex-1 min-w-0">{btAudioError}</span>
+            <button
+              type="button"
+              onClick={onDismissBtAudioError}
+              title="Fermer"
+              className="text-rose-300/80 hover:text-rose-100 shrink-0 cursor-pointer mt-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 3. En-tête du fil Notifications */}

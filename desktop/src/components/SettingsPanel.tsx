@@ -2,13 +2,16 @@ import { useState } from "react";
 import {
   BatteryCharging,
   Bell,
+  Bluetooth,
   Clipboard,
   FolderOpen,
   HardDrive,
+  Headphones,
   Images,
   Info,
   Keyboard,
   Link2Off,
+  Loader2,
   MonitorSmartphone,
   MousePointerClick,
   Network,
@@ -19,12 +22,18 @@ import {
   Smartphone,
   Wifi,
 } from "lucide-react";
-import type { ServerStatus } from "../types/protocol";
+import type { BluetoothAudioStatus, ServerStatus } from "../types/protocol";
 
 type SettingsSectionId = "general" | "device" | "about";
 
 interface SettingsPanelProps {
   status: ServerStatus;
+  btAudioStatus: BluetoothAudioStatus | null;
+  btAudioBusy: boolean;
+  btAudioError: string | null;
+  onRefreshBtAudio: () => void;
+  onConnectBtAudioDevice: (deviceId: string) => void;
+  onDisconnectBtAudio: () => void;
   onRegenerateToken: () => void;
   onRequestDisconnect: () => void;
   onOpenDownloadsFolder: () => void;
@@ -32,6 +41,12 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({
   status,
+  btAudioStatus,
+  btAudioBusy,
+  btAudioError,
+  onRefreshBtAudio,
+  onConnectBtAudioDevice,
+  onDisconnectBtAudio,
   onRegenerateToken,
   onRequestDisconnect,
   onOpenDownloadsFolder,
@@ -308,6 +323,140 @@ export function SettingsPanel({
                       Connecté
                     </span>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Carte Récepteur Audio Bluetooth Windows (A2DP Sink) */}
+            <div className="rounded-xl bg-[#232934]/75 border border-white/[0.07] p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                      btAudioStatus?.active
+                        ? "bg-[#005C7D]/60 border-[#87CFF9]/45 text-[#87CFF9]"
+                        : "bg-white/[0.04] border-white/[0.08] text-[#9cb1c2]"
+                    }`}
+                  >
+                    <Headphones className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[13.5px] font-semibold text-[#f2f5f8]">
+                        Audio du téléphone sur PC (Bluetooth)
+                      </span>
+                      <span
+                        className={`text-[10.5px] px-2 py-0.5 rounded-full font-medium ${
+                          btAudioStatus?.active
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : "bg-white/[0.06] text-[#9cb1c2]"
+                        }`}
+                      >
+                        {btAudioStatus?.active
+                          ? `Actif • ${btAudioStatus.activeDeviceName ?? "Bluetooth"}`
+                          : "Inactif"}
+                      </span>
+                    </div>
+                    <div className="text-[12px] text-[#788896]">
+                      Diffuse le son du téléphone (musique, vidéos, jeux) sur
+                      les haut-parleurs ou le casque du PC via Windows A2DP.
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={btAudioBusy}
+                  onClick={onRefreshBtAudio}
+                  className="h-8 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[12px] text-[#d6e4ee] flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 text-[#87CFF9] ${btAudioBusy ? "animate-spin" : ""}`}
+                  />
+                  Actualiser
+                </button>
+              </div>
+
+              {btAudioError && (
+                <div className="rounded-lg bg-rose-500/15 border border-rose-500/30 px-3 py-2 text-[12px] text-rose-200">
+                  {btAudioError}
+                </div>
+              )}
+
+              {btAudioStatus && btAudioStatus.devices.length > 0 ? (
+                <div className="space-y-2">
+                  {btAudioStatus.devices.map((device) => {
+                    const isThisActive =
+                      btAudioStatus.active &&
+                      btAudioStatus.activeDeviceId === device.id;
+                    return (
+                      <div
+                        key={device.id}
+                        className={`rounded-lg px-3.5 py-2.5 border flex items-center justify-between gap-3 ${
+                          isThisActive
+                            ? "bg-[#005C7D]/30 border-[#87CFF9]/35"
+                            : "bg-[#14171c]/70 border-white/[0.06]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Bluetooth
+                            className={`w-4 h-4 shrink-0 ${
+                              isThisActive
+                                ? "text-[#87CFF9]"
+                                : "text-[#788896]"
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <div className="text-[12.5px] font-medium text-[#f2f5f8] truncate">
+                              {device.name}
+                            </div>
+                            <div className="text-[11px] text-[#788896]">
+                              {isThisActive
+                                ? "Réception audio active sur ce PC"
+                                : "Périphérique Bluetooth jumelé"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {isThisActive ? (
+                          <button
+                            type="button"
+                            disabled={btAudioBusy}
+                            onClick={onDisconnectBtAudio}
+                            className="h-8 px-3 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            {btAudioBusy && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            Couper
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={btAudioBusy}
+                            onClick={() => onConnectBtAudioDevice(device.id)}
+                            className="h-8 px-3 rounded-lg bg-[#005C7D] hover:bg-[#00719a] text-[#f2f5f8] text-[12px] font-medium flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            {btAudioBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#87CFF9]" />
+                            ) : (
+                              <Headphones className="w-3.5 h-3.5 text-[#87CFF9]" />
+                            )}
+                            Connecter
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg bg-[#14171c]/70 border border-white/[0.06] px-3.5 py-3 text-[12px] text-[#788896] leading-relaxed">
+                  Aucun téléphone Bluetooth compatible détecté. Jumelez
+                  d&apos;abord votre smartphone dans{" "}
+                  <strong className="text-[#d6e4ee]">
+                    Paramètres Windows → Bluetooth et appareils
+                  </strong>
+                  , puis cliquez sur <strong className="text-[#d6e4ee]">Actualiser</strong>.
                 </div>
               )}
             </div>

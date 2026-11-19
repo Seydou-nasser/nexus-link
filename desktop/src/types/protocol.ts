@@ -182,3 +182,15 @@ export interface CallLogEntryDto {
   dateMs: number;
   durationSec: number;
 }
+
+export interface BluetoothAudioDevice {
+  id: string;
+  name: string;
+}
+
+export interface BluetoothAudioStatus {
+  active: boolean;
+  activeDeviceId: string | null;
+  activeDeviceName: string | null;
+  devices: BluetoothAudioDevice[];
+}
