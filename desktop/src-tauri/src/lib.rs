@@ -61,6 +61,9 @@ fn disconnect_device(
         guard.disconnect_active_device();
         guard.to_server_status()
     };
+    // Appelé APRÈS libération du Mutex pour éviter tout deadlock dans input_hook
+    input_hook::handle_remote_focus_state("PC");
+    notifications::clear_notifications(&state, &app_handle);
     emit_status_update(&state, &app_handle);
     status
 }

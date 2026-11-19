@@ -183,7 +183,6 @@ impl NetworkState {
         self.mirror_height = 0;
         self.mirror_error = None;
         let _ = self.screen_frame_tx.send(None);
-        crate::input_hook::handle_remote_focus_state("PC");
     }
 
     /// Renvoie l'adresse IP, le port UDP et le secret de session du téléphone connecté
