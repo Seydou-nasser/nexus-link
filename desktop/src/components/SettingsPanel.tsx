@@ -1,10 +1,16 @@
 import { useState } from "react";
 import {
   BatteryCharging,
+  Bell,
+  Clipboard,
   FolderOpen,
+  HardDrive,
+  Images,
   Info,
   Keyboard,
   Link2Off,
+  MonitorSmartphone,
+  MousePointerClick,
   Network,
   QrCode,
   RefreshCw,
@@ -174,9 +180,12 @@ export function SettingsPanel({
                   </span>
                 </div>
                 <div className="rounded-lg bg-[#14171c]/70 border border-white/[0.06] px-3 py-2.5 flex items-center justify-between gap-2">
-                  <span className="text-[#788896]">Ports (WS / UDP / HTTP)</span>
+                  <span className="text-[#788896]">
+                    Ports (WS / UDP / HTTP / Média)
+                  </span>
                   <span className="font-mono-tabular text-[#d6e4ee]">
-                    {status.wsPort} / {status.udpPort} / {status.httpPort}
+                    {status.wsPort} / {status.udpPort} / {status.httpPort} /
+                    52843
                   </span>
                 </div>
               </div>
@@ -198,6 +207,14 @@ export function SettingsPanel({
                   </span>
                   <kbd className="px-2 py-0.5 rounded bg-[#14171c] border border-white/[0.1] text-[#87CFF9] font-mono-tabular text-[11px]">
                     Ctrl + K
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b border-white/[0.05]">
+                  <span className="text-[#b0cadc]">
+                    Changer rapidement d&apos;onglet
+                  </span>
+                  <kbd className="px-2 py-0.5 rounded bg-[#14171c] border border-white/[0.1] text-[#87CFF9] font-mono-tabular text-[11px]">
+                    Alt + 1..5
                   </kbd>
                 </div>
                 <div className="flex items-center justify-between py-1">
@@ -352,8 +369,8 @@ export function SettingsPanel({
                 À propos de NexusLink
               </h3>
               <p className="text-[12px] text-[#b0cadc]">
-                Pont local haute performance entre votre PC Windows et votre
-                téléphone Android.
+                Pont local rapide, léger et privé entre votre PC Windows et
+                votre téléphone Android.
               </p>
             </div>
 
@@ -373,22 +390,85 @@ export function SettingsPanel({
               </div>
 
               <p className="text-[12.5px] text-[#c7d6e2] leading-relaxed">
-                Toutes les communications (fichiers, presse-papiers,
-                notifications, recopie d&apos;écran et contrôle souris/clavier)
-                transitent exclusivement sur votre réseau Wi-Fi local, sans
-                serveur externe ni compte cloud.
+                NexusLink connecte directement votre téléphone Android à votre
+                PC sur votre réseau Wi-Fi local. Vos photos, vidéos, fichiers,
+                notifications et contrôles ne passent par aucun serveur externe
+                ni compte cloud : tout reste chez vous, avec une empreinte
+                mémoire minimale.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[12px]">
+              {/* Grille des fonctionnalités principales */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                {[
+                  {
+                    icon: Images,
+                    title: "Galerie Photos & Vidéos",
+                    desc: "Récents, dossiers du téléphone, lecture vidéo en streaming et suppression directe.",
+                  },
+                  {
+                    icon: HardDrive,
+                    title: "Explorateur de fichiers",
+                    desc: "Navigation complète du stockage, recherche récursive et glisser-déposer direct.",
+                  },
+                  {
+                    icon: Clipboard,
+                    title: "Transferts & Presse-papiers",
+                    desc: "Envoi haut débit en streaming et synchronisation texte/captures en temps réel.",
+                  },
+                  {
+                    icon: Bell,
+                    title: "Notifications en direct",
+                    desc: "Réception instantanée, réponse rapide et suppression synchronisée.",
+                  },
+                  {
+                    icon: MonitorSmartphone,
+                    title: "Écran du téléphone",
+                    desc: "Fenêtre dédiée fluide avec gestes tactiles interactifs depuis la souris.",
+                  },
+                  {
+                    icon: MousePointerClick,
+                    title: "Souris & Clavier partagés",
+                    desc: "Bascule naturelle au bord de l'écran en UDP 120 Hz avec retour Échap.",
+                  },
+                ].map((feature) => {
+                  const Icon = feature.icon;
+                  return (
+                    <div
+                      key={feature.title}
+                      className="rounded-xl bg-[#14171c]/70 border border-white/[0.06] p-3 flex items-start gap-2.5"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-[#005C7D]/45 border border-[#87CFF9]/25 flex items-center justify-center text-[#87CFF9] shrink-0 mt-0.5">
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-medium text-[#f2f5f8]">
+                          {feature.title}
+                        </div>
+                        <div className="text-[11px] text-[#788896] leading-snug mt-0.5">
+                          {feature.desc}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[12px] pt-1">
                 <div className="rounded-lg bg-[#14171c]/70 border border-white/[0.06] px-3 py-2.5 flex items-center justify-between gap-2">
-                  <span className="text-[#788896]">Sécurité contrôle UDP</span>
+                  <span className="text-[#788896]">Confidentialité</span>
+                  <span className="text-emerald-300 font-medium">
+                    100 % Local
+                  </span>
+                </div>
+                <div className="rounded-lg bg-[#14171c]/70 border border-white/[0.06] px-3 py-2.5 flex items-center justify-between gap-2">
+                  <span className="text-[#788896]">Contrôle UDP</span>
                   <span className="text-[#87CFF9] font-medium">
                     HMAC-SHA256
                   </span>
                 </div>
                 <div className="rounded-lg bg-[#14171c]/70 border border-white/[0.06] px-3 py-2.5 flex items-center justify-between gap-2">
                   <span className="text-[#788896]">Identifiant PC</span>
-                  <span className="font-mono-tabular text-[#d6e4ee] truncate max-w-[160px]">
+                  <span className="font-mono-tabular text-[#d6e4ee] truncate max-w-[120px]">
                     {status.deviceId}
                   </span>
                 </div>

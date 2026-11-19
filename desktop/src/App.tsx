@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -7,6 +7,7 @@ import {
   FileUp,
   FolderOpen,
   FolderSync,
+  HardDrive,
   Images,
   Monitor,
   MoreHorizontal,
@@ -18,6 +19,7 @@ import {
   Smartphone,
   Sparkles,
 } from "lucide-react";
+import { FileExplorerPanel } from "./components/FileExplorerPanel";
 import { GalleryPanel } from "./components/GalleryPanel";
 import { PhoneSidebar } from "./components/PhoneSidebar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -31,7 +33,13 @@ import type {
 import "./App.css";
 
 type ScreenEdge = "LEFT" | "RIGHT" | "BOTTOM";
-type TopTabId = "gallery" | "files" | "clipboard" | "input" | "settings";
+type TopTabId =
+  | "gallery"
+  | "explorer"
+  | "files"
+  | "clipboard"
+  | "input"
+  | "settings";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -58,6 +66,19 @@ function App() {
     [],
   );
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+
+  const activeTabRef = useRef<TopTabId>(activeTab);
+  activeTabRef.current = activeTab;
+  const explorerDropHandlerRef = useRef<
+    ((paths: string[]) => Promise<void>) | null
+  >(null);
+
+  const handleRegisterExplorerDrop = useCallback(
+    (handler: ((paths: string[]) => Promise<void>) | null) => {
+      explorerDropHandlerRef.current = handler;
+    },
+    [],
+  );
 
   const fetchServerStatus = async () => {
     try {
@@ -257,9 +278,20 @@ function App() {
         } else if (event.payload.type === "drop") {
           setIsDraggingFile(false);
           if (event.payload.paths.length > 0) {
-            invoke("send_files_to_phone", { paths: event.payload.paths }).catch(
-              (err) => console.error("Erreur lors de l'envoi :", err),
-            );
+            if (
+              activeTabRef.current === "explorer" &&
+              explorerDropHandlerRef.current
+            ) {
+              explorerDropHandlerRef
+                .current(event.payload.paths)
+                .catch((err) =>
+                  console.error("Erreur upload explorateur :", err),
+                );
+            } else {
+              invoke("send_files_to_phone", {
+                paths: event.payload.paths,
+              }).catch((err) => console.error("Erreur lors de l'envoi :", err));
+            }
           }
         }
       },
@@ -272,10 +304,12 @@ function App() {
       } else if (event.altKey && event.key === "1") {
         setActiveTab("gallery");
       } else if (event.altKey && event.key === "2") {
-        setActiveTab("files");
+        setActiveTab("explorer");
       } else if (event.altKey && event.key === "3") {
-        setActiveTab("clipboard");
+        setActiveTab("files");
       } else if (event.altKey && event.key === "4") {
+        setActiveTab("clipboard");
+      } else if (event.altKey && event.key === "5") {
         setActiveTab("input");
       } else if (event.key === "Escape") {
         setCommandPaletteOpen(false);
@@ -314,7 +348,8 @@ function App() {
     icon: React.ComponentType<{ className?: string }>;
   }[] = [
     { id: "gallery", label: "Galerie", icon: Images },
-    { id: "files", label: "Fichiers", icon: FolderSync },
+    { id: "explorer", label: "Explorateur", icon: HardDrive },
+    { id: "files", label: "Transferts", icon: FolderSync },
     { id: "clipboard", label: "Presse-papiers", icon: Clipboard },
     { id: "input", label: "Souris & Clavier", icon: MousePointerClick },
   ];
@@ -498,7 +533,16 @@ function App() {
                   />
                 )}
 
-                {/* Onglet Fichiers */}
+                {/* Onglet Explorateur de fichiers Android */}
+                {activeTab === "explorer" && (
+                  <FileExplorerPanel
+                    deviceId={connectedDevice?.deviceId ?? null}
+                    isDraggingFile={isDraggingFile}
+                    onRegisterDropHandler={handleRegisterExplorerDrop}
+                  />
+                )}
+
+                {/* Onglet Transferts */}
                 {activeTab === "files" && (
                   <div className="h-full flex flex-col gap-5">
                     <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -1026,6 +1070,17 @@ function App() {
                 className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] disabled:opacity-40 flex items-center justify-between text-[#f2f5f8] cursor-pointer"
               >
                 <span>Ouvrir l&apos;écran du téléphone</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("explorer");
+                  setCommandPaletteOpen(false);
+                }}
+                disabled={!connectedDevice}
+                className="w-full px-3 py-2 rounded-lg hover:bg-white/[0.06] disabled:opacity-40 flex items-center justify-between text-[#f2f5f8] cursor-pointer"
+              >
+                <span>Ouvrir l&apos;Explorateur de fichiers</span>
               </button>
               <button
                 type="button"

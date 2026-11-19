@@ -110,3 +110,32 @@ export interface MediaPageResponse {
   limit: number;
   hasMore: boolean;
 }
+
+export interface FsShortcutDto {
+  label: string;
+  path: string;
+}
+
+export interface FsStorageInfoDto {
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+  hasAllFilesAccess: boolean;
+  shortcuts: FsShortcutDto[];
+}
+
+export interface FsEntryDto {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  lastModified: number;
+  extension: string;
+  childCount: number;
+}
+
+export interface FsListResponse {
+  currentPath: string;
+  parentPath: string | null;
+  entries: FsEntryDto[];
+}
