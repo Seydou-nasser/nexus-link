@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   BatteryCharging,
   Bell,
@@ -15,6 +16,7 @@ import {
   MonitorSmartphone,
   MousePointerClick,
   Network,
+  Power,
   QrCode,
   RefreshCw,
   ShieldCheck,
@@ -53,6 +55,31 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>("general");
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean>(false);
+  const [autostartBusy, setAutostartBusy] = useState<boolean>(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<boolean>("get_autostart_enabled")
+      .then(setAutostartEnabled)
+      .catch(() => {});
+  }, []);
+
+  const handleToggleAutostart = async () => {
+    if (autostartBusy) return;
+    setAutostartBusy(true);
+    setAutostartError(null);
+    try {
+      const updated = await invoke<boolean>("set_autostart_enabled", {
+        enabled: !autostartEnabled,
+      });
+      setAutostartEnabled(updated);
+    } catch (error) {
+      setAutostartError(String(error));
+    } finally {
+      setAutostartBusy(false);
+    }
+  };
 
   const connectedDevice = status.connectedDevice;
 
@@ -119,6 +146,59 @@ export function SettingsPanel({
                 Dossier de réception, services réseau locaux et raccourcis
                 clavier.
               </p>
+            </div>
+
+            {/* Démarrage automatique avec Windows */}
+            <div className="rounded-xl bg-[#232934]/75 border border-white/[0.07] p-4 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 ${
+                      autostartEnabled
+                        ? "bg-[#005C7D]/60 border-[#87CFF9]/40 text-[#87CFF9]"
+                        : "bg-white/[0.04] border-white/[0.08] text-[#9cb1c2]"
+                    }`}
+                  >
+                    <Power className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-[#f2f5f8]">
+                      Lancer au démarrage de Windows
+                    </div>
+                    <div className="text-[12px] text-[#788896]">
+                      Démarre NexusLink automatiquement réduit dans la barre
+                      système à l&apos;ouverture de session.
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autostartEnabled}
+                  disabled={autostartBusy}
+                  onClick={handleToggleAutostart}
+                  className={`relative w-11 h-6 rounded-full border transition cursor-pointer disabled:opacity-50 shrink-0 ${
+                    autostartEnabled
+                      ? "bg-[#005C7D] border-[#87CFF9]/50"
+                      : "bg-white/[0.08] border-white/[0.12]"
+                  }`}
+                >
+                  <span
+                    className={`block w-4 h-4 rounded-full transition-transform ${
+                      autostartEnabled
+                        ? "translate-x-5 bg-[#87CFF9]"
+                        : "translate-x-1 bg-[#9cb1c2]"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {autostartError && (
+                <div className="rounded-lg bg-rose-500/15 border border-rose-500/30 px-3 py-2 text-[12px] text-rose-200">
+                  {autostartError}
+                </div>
+              )}
             </div>
 
             {/* Dossier de réception */}

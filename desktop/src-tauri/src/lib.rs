@@ -20,8 +20,8 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::network::{
-    detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
-    start_mdns_advertisement, start_websocket_server, NetworkState,
+    NetworkState, detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
+    start_mdns_advertisement, start_websocket_server,
 };
 use crate::protocol::{
     ClipboardHistoryEntry, FileTransferRecord, InputSettings, PhoneNotificationRecord,
@@ -102,10 +102,7 @@ fn respond_to_pairing_request(
 
 /// Déclenche ou arrête la sonnerie maximale sur le téléphone connecté
 #[tauri::command]
-fn trigger_find_my_phone(
-    ringing: bool,
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-) -> bool {
+fn trigger_find_my_phone(ringing: bool, state: State<'_, Arc<Mutex<NetworkState>>>) -> bool {
     let action = if ringing {
         "START_RINGING"
     } else {
@@ -120,9 +117,7 @@ fn trigger_find_my_phone(
 
 /// Renvoie l'historique récent du presse-papiers partagé
 #[tauri::command]
-fn get_clipboard_history(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-) -> Vec<ClipboardHistoryEntry> {
+fn get_clipboard_history(state: State<'_, Arc<Mutex<NetworkState>>>) -> Vec<ClipboardHistoryEntry> {
     let guard = state.lock().unwrap();
     guard.clipboard_history.clone()
 }
@@ -139,9 +134,7 @@ fn send_clipboard_to_phone(
 
 /// Renvoie l'historique des transferts de fichiers
 #[tauri::command]
-fn get_file_transfers(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-) -> Vec<FileTransferRecord> {
+fn get_file_transfers(state: State<'_, Arc<Mutex<NetworkState>>>) -> Vec<FileTransferRecord> {
     let guard = state.lock().unwrap();
     guard.file_transfers.clone()
 }
@@ -159,10 +152,7 @@ fn send_files_to_phone(
 
 /// Ouvre le sélecteur de fichiers natif Windows et envoie les fichiers sélectionnés
 #[tauri::command]
-fn pick_and_send_files(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-    app_handle: AppHandle,
-) {
+fn pick_and_send_files(state: State<'_, Arc<Mutex<NetworkState>>>, app_handle: AppHandle) {
     let state_arc = Arc::clone(&state);
     let app_clone = app_handle.clone();
     app_handle.dialog().file().pick_files(move |selected| {
@@ -193,9 +183,7 @@ fn open_local_file(path: String, app_handle: AppHandle) {
 
 /// Renvoie la liste des notifications actives du téléphone
 #[tauri::command]
-fn get_notifications(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-) -> Vec<PhoneNotificationRecord> {
+fn get_notifications(state: State<'_, Arc<Mutex<NetworkState>>>) -> Vec<PhoneNotificationRecord> {
     let guard = state.lock().unwrap();
     guard.notifications.clone()
 }
@@ -266,26 +254,25 @@ fn open_or_focus_mirror_window(app_handle: &AppHandle) {
             let logical_h = (m.size().height as f64) / scale;
             let max_h = (logical_h - 100.0).max(420.0);
             let h = (logical_h * 0.82).min(max_h).clamp(460.0, 720.0);
-            let w = (h * 0.48).min((logical_w - 80.0).max(240.0)).clamp(260.0, 360.0);
+            let w = (h * 0.48)
+                .min((logical_w - 80.0).max(240.0))
+                .clamp(260.0, 360.0);
             (w, h)
         } else {
             (320.0, 660.0)
         }
     };
 
-    if let Ok(win) = WebviewWindowBuilder::new(
-        app_handle,
-        "mirror",
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Écran du téléphone")
-    .inner_size(target_width, target_height)
-    .min_inner_size(240.0, 420.0)
-    .center()
-    .decorations(false)
-    .transparent(true)
-    .resizable(true)
-    .build()
+    if let Ok(win) =
+        WebviewWindowBuilder::new(app_handle, "mirror", WebviewUrl::App("index.html".into()))
+            .title("Écran du téléphone")
+            .inner_size(target_width, target_height)
+            .min_inner_size(240.0, 420.0)
+            .center()
+            .decorations(false)
+            .transparent(true)
+            .resizable(true)
+            .build()
     {
         #[cfg(target_os = "windows")]
         if window_vibrancy::apply_mica(&win, Some(true)).is_err() {
@@ -348,10 +335,7 @@ async fn focus_mirror_window(app_handle: AppHandle) -> Result<(), String> {
 
 /// Demande au téléphone d'arrêter la recopie d'écran et ferme la fenêtre séparée
 #[tauri::command]
-fn stop_screen_mirror(
-    state: State<'_, Arc<Mutex<NetworkState>>>,
-    app_handle: AppHandle,
-) -> bool {
+fn stop_screen_mirror(state: State<'_, Arc<Mutex<NetworkState>>>, app_handle: AppHandle) -> bool {
     let sent = stop_mirror_session(&state, &app_handle);
     if let Some(win) = app_handle.get_webview_window("mirror") {
         let _ = win.close();
@@ -696,14 +680,63 @@ async fn bt_audio_disconnect() -> Result<audio_sink::BluetoothAudioStatus, Strin
     audio_sink::bt_audio_disconnect().await
 }
 
+/// Indique si NexusLink est configuré pour démarrer automatiquement avec Windows
+#[tauri::command]
+fn get_autostart_enabled(app_handle: AppHandle) -> Result<bool, String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        app_handle
+            .autolaunch()
+            .is_enabled()
+            .map_err(|e| format!("Impossible de lire l'état du démarrage automatique : {}", e))
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = app_handle;
+        Ok(false)
+    }
+}
+
+/// Active ou désactive le démarrage automatique avec Windows (lancé réduit dans la barre système)
+#[tauri::command]
+fn set_autostart_enabled(enabled: bool, app_handle: AppHandle) -> Result<bool, String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app_handle.autolaunch();
+        if enabled {
+            manager
+                .enable()
+                .map_err(|e| format!("Impossible d'activer le démarrage automatique : {}", e))?;
+        } else {
+            manager
+                .disable()
+                .map_err(|e| format!("Impossible de désactiver le démarrage automatique : {}", e))?;
+        }
+        manager
+            .is_enabled()
+            .map_err(|e| format!("Impossible de vérifier le démarrage automatique : {}", e))
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (enabled, app_handle);
+        Ok(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(NetworkState::new()));
-    let mirror_udp_sender = Arc::new(
-        UdpInputSender::new().expect("Impossible d'ouvrir le socket UDP pour la recopie"),
-    );
+    let mirror_udp_sender =
+        Arc::new(UdpInputSender::new().expect("Impossible d'ouvrir le socket UDP pour la recopie"));
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--minimized"])
+                .build(),
+        )
         .manage(Arc::clone(&shared_state))
         .manage(mirror_udp_sender)
         .plugin(tauri_plugin_opener::init())
@@ -730,6 +763,13 @@ pub fn run() {
 
             // Initialise l'icône dans la barre système Windows (System Tray)
             tray::setup_system_tray(&app_handle)?;
+
+            // Si lancé au démarrage de Windows (--minimized), démarre réduit dans la barre système
+            if std::env::args().any(|arg| arg == "--minimized") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
             // Démarre l'annonce mDNS sur un fil d'exécution dédié
             let mdns_state = Arc::clone(&shared_state);
@@ -822,7 +862,9 @@ pub fn run() {
             calls_dial_number,
             bt_audio_status,
             bt_audio_connect,
-            bt_audio_disconnect
+            bt_audio_disconnect,
+            get_autostart_enabled,
+            set_autostart_enabled
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri NexusLink");
