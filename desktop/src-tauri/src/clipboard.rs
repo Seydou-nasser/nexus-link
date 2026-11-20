@@ -1,7 +1,7 @@
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use image::codecs::jpeg::JpegEncoder;
@@ -80,7 +80,14 @@ pub fn start_clipboard_monitor(state: Arc<Mutex<NetworkState>>, app_handle: AppH
             let img_hash = hash_rgba(img.width, img.height, &img.bytes);
             let is_new_image = {
                 let mut guard = state.lock().unwrap();
-                if guard.last_clipboard_image_hash != Some(img_hash) {
+                let suppressed = guard
+                    .clipboard_image_suppress_until
+                    .is_some_and(|until| Instant::now() < until);
+                if suppressed {
+                    // Mémorise le hash réel produit par Windows/GDI+ sans renvoyer d'écho vers Android
+                    guard.last_clipboard_image_hash = Some(img_hash);
+                    false
+                } else if guard.last_clipboard_image_hash != Some(img_hash) {
                     guard.last_clipboard_image_hash = Some(img_hash);
                     guard.connected_device.is_some()
                 } else {
@@ -180,6 +187,7 @@ pub fn apply_remote_clipboard_image(
     {
         let mut guard = state.lock().unwrap();
         guard.last_clipboard_image_hash = Some(img_hash);
+        guard.clipboard_image_suppress_until = Some(Instant::now() + Duration::from_secs(5));
         push_history_entry(&mut guard, format!("[Image {}×{}]", width, height), "Android");
     }
 
@@ -207,6 +215,18 @@ pub fn apply_remote_clipboard_image(
             match output {
                 Ok(res) if res.status.success() => {
                     eprintln!("Image presse-papiers appliquée sous Windows ({}x{})", width, height);
+                    // Relit immédiatement le hash RGBA réel écrit par GDI+ pour empêcher tout écho
+                    if let Ok(mut cb) = Clipboard::new() {
+                        if let Ok(written_img) = cb.get_image() {
+                            let actual_hash = hash_rgba(
+                                written_img.width,
+                                written_img.height,
+                                &written_img.bytes,
+                            );
+                            let mut guard = state.lock().unwrap();
+                            guard.last_clipboard_image_hash = Some(actual_hash);
+                        }
+                    }
                 }
                 Ok(res) => {
                     eprintln!(
@@ -219,6 +239,8 @@ pub fn apply_remote_clipboard_image(
                 }
             }
         }
+        let mut guard = state.lock().unwrap();
+        guard.clipboard_image_suppress_until = Some(Instant::now() + Duration::from_secs(1));
     }
 
     #[cfg(not(target_os = "windows"))]
