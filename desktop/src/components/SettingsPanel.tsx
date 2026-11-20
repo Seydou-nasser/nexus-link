@@ -533,7 +533,7 @@ export function SettingsPanel({
                     NexusLink Desktop
                   </div>
                   <div className="text-[12px] text-[#b0cadc]">
-                    Version 0.1.0 • Tauri v2 + Rust + React
+                    Version 1.0.0 • Tauri v2 + Rust + React
                   </div>
                 </div>
               </div>

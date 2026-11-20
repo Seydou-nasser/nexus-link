@@ -1,6 +1,6 @@
 [package]
 name = "nexus-link-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "NexusLink Desktop — Application locale légère de liaison PC-Android"
 authors = ["NexusLink"]
 edition = "2024"
