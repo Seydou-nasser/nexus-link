@@ -167,8 +167,7 @@ pub async fn sms_search_contacts(
     if status != 200 {
         return Err(map_error(status, &body));
     }
-    serde_json::from_slice(&body)
-        .map_err(|e| format!("Impossible de décoder les contacts : {}", e))
+    serde_json::from_slice(&body).map_err(|e| format!("Impossible de décoder les contacts : {}", e))
 }
 
 pub async fn sms_send(

@@ -1,7 +1,7 @@
 use tauri::{
+    AppHandle, Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
 };
 
 /// Initialise l'icône de la barre système (System Tray) avec son menu contextuel

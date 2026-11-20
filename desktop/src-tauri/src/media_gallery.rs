@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::extract::Path as AxumPath;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -149,7 +149,12 @@ async fn send_android_request(
     let mut stream = timeout(CONNECT_TIMEOUT, TcpStream::connect(&addr))
         .await
         .map_err(|_| format!("Délai dépassé lors de la connexion à {}", addr))?
-        .map_err(|e| format!("Impossible de joindre le serveur galerie Android ({}) : {}", addr, e))?;
+        .map_err(|e| {
+            format!(
+                "Impossible de joindre le serveur galerie Android ({}) : {}",
+                addr, e
+            )
+        })?;
 
     let mut request = format!(
         "{} {} HTTP/1.1\r\nHost: {}\r\nX-Nexus-Token: {}\r\nConnection: close\r\n",
@@ -252,8 +257,7 @@ pub async fn fetch_media_items(
     if status != 200 {
         return Err(format!("Erreur Android (/media/items) : HTTP {}", status));
     }
-    serde_json::from_slice(&body)
-        .map_err(|e| format!("Impossible de décoder les médias : {}", e))
+    serde_json::from_slice(&body).map_err(|e| format!("Impossible de décoder les médias : {}", e))
 }
 
 /// Télécharge un média original en streaming dans Téléchargements/NexusLink
@@ -269,7 +273,10 @@ pub async fn download_media_to_pc(
 
     let mut head = send_android_request("GET", &ip, &secret, &path, None).await?;
     if head.status_code != 200 {
-        return Err(format!("Impossible de télécharger le média : HTTP {}", head.status_code));
+        return Err(format!(
+            "Impossible de télécharger le média : HTTP {}",
+            head.status_code
+        ));
     }
 
     let target_path = build_unique_download_path(display_name);
@@ -322,7 +329,10 @@ pub async fn delete_media_on_phone(
     if !server_msg.is_empty() {
         Err(server_msg)
     } else {
-        Err(format!("Échec de la suppression (HTTP {})", head.status_code))
+        Err(format!(
+            "Échec de la suppression (HTTP {})",
+            head.status_code
+        ))
     }
 }
 
@@ -377,9 +387,7 @@ pub async fn proxy_media_file(
         return (StatusCode::BAD_REQUEST, "Type média invalide").into_response();
     };
 
-    let range_header = req_headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok());
+    let range_header = req_headers.get(header::RANGE).and_then(|v| v.to_str().ok());
     let path = format!("/media/file/{}/{}", normalized, media_id);
 
     let head = match send_android_request("GET", &ip, &secret, &path, range_header).await {

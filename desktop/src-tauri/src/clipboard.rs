@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 
-use crate::network::{current_time_label, NetworkState, OutgoingPayload};
+use crate::network::{NetworkState, OutgoingPayload, current_time_label};
 use crate::protocol::{ClipboardHistoryEntry, ClipboardSyncPayload, FileTransferOfferPayload};
 
 const MAX_HISTORY_ITEMS: usize = 15;
@@ -22,7 +22,10 @@ pub fn start_clipboard_monitor(state: Arc<Mutex<NetworkState>>, app_handle: AppH
     let mut clipboard = match Clipboard::new() {
         Ok(cb) => cb,
         Err(err) => {
-            eprintln!("Impossible d'initialiser le presse-papiers système : {}", err);
+            eprintln!(
+                "Impossible d'initialiser le presse-papiers système : {}",
+                err
+            );
             return;
         }
     };
@@ -48,7 +51,8 @@ pub fn start_clipboard_monitor(state: Arc<Mutex<NetworkState>>, app_handle: AppH
             if !current_text.trim().is_empty() {
                 let should_emit = {
                     let mut guard = state.lock().unwrap();
-                    let changed = guard.last_clipboard_text.as_deref() != Some(current_text.as_str());
+                    let changed =
+                        guard.last_clipboard_text.as_deref() != Some(current_text.as_str());
                     if changed {
                         guard.last_clipboard_text = Some(current_text.clone());
                         if guard.connected_device.is_some() {
@@ -188,7 +192,11 @@ pub fn apply_remote_clipboard_image(
         let mut guard = state.lock().unwrap();
         guard.last_clipboard_image_hash = Some(img_hash);
         guard.clipboard_image_suppress_until = Some(Instant::now() + Duration::from_secs(5));
-        push_history_entry(&mut guard, format!("[Image {}×{}]", width, height), "Android");
+        push_history_entry(
+            &mut guard,
+            format!("[Image {}×{}]", width, height),
+            "Android",
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -207,14 +215,25 @@ pub fn apply_remote_clipboard_image(
                 escaped_path
             );
             let output = std::process::Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Sta", "-Command", &ps_script])
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-Sta",
+                    "-Command",
+                    &ps_script,
+                ])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
             let _ = std::fs::remove_file(&temp_path);
 
             match output {
                 Ok(res) if res.status.success() => {
-                    eprintln!("Image presse-papiers appliquée sous Windows ({}x{})", width, height);
+                    eprintln!(
+                        "Image presse-papiers appliquée sous Windows ({}x{})",
+                        width, height
+                    );
                     // Relit immédiatement le hash RGBA réel écrit par GDI+ pour empêcher tout écho
                     if let Ok(mut cb) = Clipboard::new() {
                         if let Ok(written_img) = cb.get_image() {

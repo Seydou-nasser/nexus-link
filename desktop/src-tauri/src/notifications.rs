@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
-use crate::network::{current_epoch_millis, current_time_label, NetworkState};
+use crate::network::{NetworkState, current_epoch_millis, current_time_label};
 use crate::protocol::{
     NotificationDismissPayload, NotificationPostedPayload, NotificationRemovedPayload,
     NotificationReplyPayload, PhoneNotificationRecord,

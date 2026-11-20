@@ -1,15 +1,15 @@
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
 
-use crate::network::{emit_status_update, NetworkState};
+use crate::network::{NetworkState, emit_status_update};
 use crate::protocol::{InputFocusStatePayload, InputSettings};
 use crate::udp_input::{
-    UdpInputSender, EVENT_KEY_EVENT, EVENT_MOUSE_BUTTON, EVENT_MOUSE_MOVE, EVENT_MOUSE_WHEEL,
-    FLAG_RELATIVE,
+    EVENT_KEY_EVENT, EVENT_MOUSE_BUTTON, EVENT_MOUSE_MOVE, EVENT_MOUSE_WHEEL, FLAG_RELATIVE,
+    UdpInputSender,
 };
 
 enum HookCommand {
@@ -74,7 +74,10 @@ impl InputHookRuntime {
     pub fn refresh_snapshot(&self) {
         let (settings, has_device) = {
             let guard = self.network_state.lock().unwrap();
-            (guard.input_settings.clone(), guard.connected_device.is_some())
+            (
+                guard.input_settings.clone(),
+                guard.connected_device.is_some(),
+            )
         };
         if let Ok(mut snap) = self.config_snapshot.try_lock() {
             snap.settings = settings;
@@ -83,7 +86,9 @@ impl InputHookRuntime {
     }
 
     pub fn set_focus_from_remote(&self, active_target: &str) {
-        if active_target.eq_ignore_ascii_case("PC") && self.focus_active.swap(false, Ordering::AcqRel) {
+        if active_target.eq_ignore_ascii_case("PC")
+            && self.focus_active.swap(false, Ordering::AcqRel)
+        {
             self.button_mask.store(0, Ordering::Relaxed);
             self.suppress_edge_until_ms
                 .store(self.now_ms() + 350, Ordering::Relaxed);
@@ -128,7 +133,9 @@ impl InputHookRuntime {
         self.edge_enter_since_ms.store(0, Ordering::Relaxed);
         self.suppress_edge_until_ms
             .store(self.now_ms() + 350, Ordering::Relaxed);
-        let _ = self.cmd_tx.send(HookCommand::ExitAndroid { notify_android });
+        let _ = self
+            .cmd_tx
+            .send(HookCommand::ExitAndroid { notify_android });
     }
 }
 
@@ -137,7 +144,10 @@ pub fn start_input_hook_monitor(state: Arc<Mutex<NetworkState>>, app_handle: App
     let udp_sender = match UdpInputSender::new() {
         Ok(sender) => sender,
         Err(err) => {
-            eprintln!("[NexusLink] Impossible d'initialiser le socket UDP : {}", err);
+            eprintln!(
+                "[NexusLink] Impossible d'initialiser le socket UDP : {}",
+                err
+            );
             return;
         }
     };
@@ -209,9 +219,7 @@ fn run_worker_loop(
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(25)) {
-            Ok(cmd) => {
-                process_worker_command(&runtime, &udp_sender, &mut cached_udp_target, cmd)
-            }
+            Ok(cmd) => process_worker_command(&runtime, &udp_sender, &mut cached_udp_target, cmd),
             Err(RecvTimeoutError::Timeout) => {
                 snap_tick = snap_tick.wrapping_add(1);
                 if snap_tick % 10 == 0 {
@@ -361,18 +369,18 @@ mod windows_impl {
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::HiDpi::{
-        SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_SHIFT,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, DispatchMessageW, GetMessageW, GetSystemMetrics, SetWindowsHookExW,
-        TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
-        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-        WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-        WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
-        WM_SYSKEYDOWN, WM_SYSKEYUP,
+        CallNextHookEx, DispatchMessageW, GetMessageW, GetSystemMetrics, HC_ACTION,
+        KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SetWindowsHookExW, TranslateMessage,
+        UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+        WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
+        WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
 
     const LLMHF_INJECTED_FLAG: u32 = 0x01;
@@ -459,8 +467,8 @@ mod windows_impl {
                     }
                     return 1;
                 }
-                WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP
-                | WM_MBUTTONDOWN | WM_MBUTTONUP => {
+                WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN
+                | WM_MBUTTONUP => {
                     let mut mask = runtime.button_mask.load(Ordering::Relaxed);
                     match msg {
                         WM_LBUTTONDOWN => mask |= 0x01,
@@ -537,7 +545,9 @@ mod windows_impl {
                         if now >= runtime.suppress_edge_until_ms.load(Ordering::Relaxed) {
                             let enter_since = runtime.edge_enter_since_ms.load(Ordering::Relaxed);
                             let start_ms = if enter_since == 0 {
-                                runtime.edge_enter_since_ms.store(now.max(1), Ordering::Relaxed);
+                                runtime
+                                    .edge_enter_since_ms
+                                    .store(now.max(1), Ordering::Relaxed);
                                 now
                             } else {
                                 enter_since

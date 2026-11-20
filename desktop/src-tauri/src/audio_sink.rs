@@ -20,12 +20,12 @@ pub struct BluetoothAudioStatus {
 mod imp {
     use std::sync::{Mutex, OnceLock};
 
-    use windows::core::HSTRING;
     use windows::Devices::Enumeration::DeviceInformation;
     use windows::Media::Audio::{
         AudioPlaybackConnection, AudioPlaybackConnectionOpenResultStatus,
         AudioPlaybackConnectionState,
     };
+    use windows::core::HSTRING;
 
     use super::{BluetoothAudioDevice, BluetoothAudioStatus};
 
@@ -214,7 +214,10 @@ mod imp {
         _requested_device_id: Option<String>,
         _preferred_name: Option<String>,
     ) -> Result<BluetoothAudioStatus, String> {
-        Err("Le récepteur audio Bluetooth est disponible uniquement sous Windows 10/11.".to_string())
+        Err(
+            "Le récepteur audio Bluetooth est disponible uniquement sous Windows 10/11."
+                .to_string(),
+        )
     }
 
     pub fn disconnect() -> Result<BluetoothAudioStatus, String> {

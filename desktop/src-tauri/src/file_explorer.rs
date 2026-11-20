@@ -192,9 +192,7 @@ fn map_error(status: u16, body: &[u8]) -> String {
     }
 }
 
-pub async fn fs_storage_info(
-    state: &Arc<Mutex<NetworkState>>,
-) -> Result<FsStorageInfoDto, String> {
+pub async fn fs_storage_info(state: &Arc<Mutex<NetworkState>>) -> Result<FsStorageInfoDto, String> {
     let (ip, secret) = get_android_target(state)?;
     let (status, body) = send_android_request("GET", &ip, &secret, "/fs/info", None).await?;
     if status != 200 {
@@ -214,8 +212,7 @@ pub async fn fs_list_dir(
     if status != 200 {
         return Err(map_error(status, &body));
     }
-    serde_json::from_slice(&body)
-        .map_err(|e| format!("Impossible de décoder le dossier : {}", e))
+    serde_json::from_slice(&body).map_err(|e| format!("Impossible de décoder le dossier : {}", e))
 }
 
 pub async fn fs_search_entries(
@@ -277,10 +274,7 @@ pub async fn fs_rename_entry(
         .map_err(|e| format!("Impossible de décoder l'élément renommé : {}", e))
 }
 
-pub async fn fs_delete_entry(
-    state: &Arc<Mutex<NetworkState>>,
-    path: String,
-) -> Result<(), String> {
+pub async fn fs_delete_entry(state: &Arc<Mutex<NetworkState>>, path: String) -> Result<(), String> {
     let (ip, secret) = get_android_target(state)?;
     let url = format!("/fs/delete?path={}", encode_query_component(&path));
     let (status, body) = send_android_request("DELETE", &ip, &secret, &url, None).await?;
@@ -371,14 +365,30 @@ pub async fn fs_download_file(
     let started_at = Instant::now();
     let mut last_emit = Instant::now();
     let mut downloaded_bytes = 0u64;
-    emit_fs_progress(app_handle, &display_name, "DOWNLOAD", 0, total_bytes, started_at, false);
+    emit_fs_progress(
+        app_handle,
+        &display_name,
+        "DOWNLOAD",
+        0,
+        total_bytes,
+        started_at,
+        false,
+    );
 
     let mut buf = vec![0u8; IO_CHUNK_SIZE];
     loop {
         let read = match reader.read(&mut buf).await {
             Ok(n) => n,
             Err(e) => {
-                emit_fs_progress(app_handle, &display_name, "DOWNLOAD", downloaded_bytes, total_bytes, started_at, true);
+                emit_fs_progress(
+                    app_handle,
+                    &display_name,
+                    "DOWNLOAD",
+                    downloaded_bytes,
+                    total_bytes,
+                    started_at,
+                    true,
+                );
                 return Err(format!("Erreur réseau pendant le téléchargement : {}", e));
             }
         };
@@ -386,7 +396,15 @@ pub async fn fs_download_file(
             break;
         }
         if let Err(e) = file.write_all(&buf[..read]).await {
-            emit_fs_progress(app_handle, &display_name, "DOWNLOAD", downloaded_bytes, total_bytes, started_at, true);
+            emit_fs_progress(
+                app_handle,
+                &display_name,
+                "DOWNLOAD",
+                downloaded_bytes,
+                total_bytes,
+                started_at,
+                true,
+            );
             return Err(format!("Erreur d'écriture locale : {}", e));
         }
         downloaded_bytes += read as u64;
@@ -470,14 +488,18 @@ pub async fn fs_upload_files(
         let started_at = Instant::now();
         let mut last_emit = Instant::now();
         let mut sent_bytes = 0u64;
-        emit_fs_progress(app_handle, &file_name, "UPLOAD", 0, file_size, started_at, false);
+        emit_fs_progress(
+            app_handle, &file_name, "UPLOAD", 0, file_size, started_at, false,
+        );
 
         let mut buf = vec![0u8; IO_CHUNK_SIZE];
         loop {
             let read = match file.read(&mut buf).await {
                 Ok(n) => n,
                 Err(e) => {
-                    emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
+                    emit_fs_progress(
+                        app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true,
+                    );
                     return Err(format!("Erreur lecture locale : {}", e));
                 }
             };
@@ -485,13 +507,17 @@ pub async fn fs_upload_files(
                 break;
             }
             if let Err(e) = stream.write_all(&buf[..read]).await {
-                emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
+                emit_fs_progress(
+                    app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true,
+                );
                 return Err(format!("Erreur réseau pendant l'envoi : {}", e));
             }
             sent_bytes += read as u64;
             if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
                 last_emit = Instant::now();
-                emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, false);
+                emit_fs_progress(
+                    app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, false,
+                );
             }
         }
         stream
@@ -501,7 +527,9 @@ pub async fn fs_upload_files(
 
         let mut reader = BufReader::with_capacity(4096, stream);
         let (status, _) = read_http_head(&mut reader).await?;
-        emit_fs_progress(app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true);
+        emit_fs_progress(
+            app_handle, &file_name, "UPLOAD", sent_bytes, file_size, started_at, true,
+        );
         if status != 200 {
             let mut err_body = Vec::new();
             let _ = reader.read_to_end(&mut err_body).await;

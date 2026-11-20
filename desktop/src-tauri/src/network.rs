@@ -8,8 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::list_afinet_netifas;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
-use qrcode::render::svg;
 use qrcode::QrCode;
+use qrcode::render::svg;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::net::{TcpListener, TcpStream};
@@ -336,7 +336,10 @@ pub async fn start_websocket_server(state: Arc<Mutex<NetworkState>>, app_handle:
             l
         }
         Err(err) => {
-            eprintln!("Erreur lors de l'ouverture du port WebSocket {}: {}", bind_addr, err);
+            eprintln!(
+                "Erreur lors de l'ouverture du port WebSocket {}: {}",
+                bind_addr, err
+            );
             return;
         }
     };
@@ -612,7 +615,10 @@ async fn process_pairing_request(
     notify_and_focus_window(app_handle, &req.device_name);
 
     // Attend la validation utilisateur (60 secondes max)
-    let user_accepted = matches!(tokio::time::timeout(Duration::from_secs(60), rx).await, Ok(Ok(true)));
+    let user_accepted = matches!(
+        tokio::time::timeout(Duration::from_secs(60), rx).await,
+        Ok(Ok(true))
+    );
 
     let mut guard = state.lock().unwrap();
     guard.pending_approvals.remove(&request_id);
@@ -680,7 +686,10 @@ fn notify_and_focus_window(app_handle: &AppHandle, device_name: &str) {
         .notification()
         .builder()
         .title("Demande de connexion NexusLink")
-        .body(format!("{} souhaite se connecter à cet ordinateur.", device_name))
+        .body(format!(
+            "{} souhaite se connecter à cet ordinateur.",
+            device_name
+        ))
         .show();
 
     if let Some(window) = app_handle.get_webview_window("main") {

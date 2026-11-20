@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use base64::Engine as _;
 use futures_util::StreamExt;
 use image::codecs::jpeg::JpegEncoder;
@@ -19,7 +19,7 @@ use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 use crate::clipboard::apply_remote_clipboard_image;
-use crate::network::{current_time_label, NetworkState, OutgoingPayload};
+use crate::network::{NetworkState, OutgoingPayload, current_time_label};
 use crate::protocol::{FileTransferOfferPayload, FileTransferRecord};
 
 const MAX_TRANSFERS_HISTORY: usize = 30;
@@ -195,7 +195,10 @@ async fn handle_upload(
             bytes_buf.extend_from_slice(&chunk);
         }
 
-        eprintln!("Image presse-papiers reçue d'Android ({} octets)", bytes_buf.len());
+        eprintln!(
+            "Image presse-papiers reçue d'Android ({} octets)",
+            bytes_buf.len()
+        );
         apply_remote_clipboard_image(&bytes_buf, &state.network, &state.app_handle);
         return (StatusCode::OK, "Image appliquée au presse-papiers").into_response();
     }
@@ -211,7 +214,9 @@ async fn handle_upload(
 
     let mut file = match tokio::fs::File::create(&dest_path).await {
         Ok(f) => f,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Création impossible").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Création impossible").into_response();
+        }
     };
 
     let file_id = Uuid::new_v4().to_string();
@@ -284,7 +289,10 @@ async fn handle_upload(
         .notification()
         .builder()
         .title("Fichier reçu via NexusLink")
-        .body(format!("{} enregistré dans Téléchargements\\NexusLink", safe_name))
+        .body(format!(
+            "{} enregistré dans Téléchargements\\NexusLink",
+            safe_name
+        ))
         .show();
 
     (StatusCode::OK, "Fichier reçu").into_response()
@@ -348,12 +356,20 @@ async fn handle_download(
                             Some(Ok(chunk)) => {
                                 sent_bytes += chunk.len() as u64;
                                 if file_len > 0 && sent_bytes >= file_len {
-                                    mark_transfer_completed(&net, &app, &fid, file_len.max(sent_bytes));
+                                    mark_transfer_completed(
+                                        &net,
+                                        &app,
+                                        &fid,
+                                        file_len.max(sent_bytes),
+                                    );
                                 } else if last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL {
                                     last_emit = Instant::now();
                                     update_transfer_progress(&net, &app, &fid, sent_bytes);
                                 }
-                                Some((Ok::<Bytes, std::io::Error>(chunk), (inner, sent_bytes, last_emit)))
+                                Some((
+                                    Ok::<Bytes, std::io::Error>(chunk),
+                                    (inner, sent_bytes, last_emit),
+                                ))
                             }
                             Some(Err(err)) => {
                                 mark_transfer_failed(&net, &app, &fid);
@@ -433,11 +449,7 @@ fn mark_transfer_completed(
     }
 }
 
-fn mark_transfer_failed(
-    network: &Arc<Mutex<NetworkState>>,
-    app_handle: &AppHandle,
-    file_id: &str,
-) {
+fn mark_transfer_failed(network: &Arc<Mutex<NetworkState>>, app_handle: &AppHandle, file_id: &str) {
     {
         let mut guard = network.lock().unwrap();
         if let Some(rec) = guard
@@ -452,7 +464,10 @@ fn mark_transfer_failed(
 }
 
 fn is_authorized(headers: &HeaderMap, state: &Arc<Mutex<NetworkState>>) -> bool {
-    let Some(auth_val) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) else {
+    let Some(auth_val) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    else {
         return false;
     };
     let Some(token) = auth_val.strip_prefix("Bearer ") else {

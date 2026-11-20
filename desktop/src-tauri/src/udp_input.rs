@@ -42,7 +42,10 @@ impl UdpInputSender {
         flags: u8,
         session_secret: &str,
     ) -> [u8; 16] {
-        let seq = self.sequence.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        let seq = self
+            .sequence
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
         let mut frame = [0u8; 16];
         frame[0] = UDP_MAGIC_BYTE;
         frame[1] = event_type;
