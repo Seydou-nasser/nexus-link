@@ -119,12 +119,17 @@ class NsdDiscoveryManager(context: Context) {
                         ?.let { String(it, StandardCharsets.UTF_8).toIntOrNull() }
                         ?: 52841
 
+                    val httpPortAttr = resolved.attributes["http_port"]
+                        ?.let { String(it, StandardCharsets.UTF_8).toIntOrNull() }
+                        ?: 52842
+
                     val host = DiscoveredDesktopHost(
                         serviceName = resolved.serviceName,
                         deviceName = deviceNameAttr,
                         hostAddress = hostAddress,
                         wsPort = resolved.port,
-                        udpPort = udpPortAttr
+                        udpPort = udpPortAttr,
+                        httpPort = httpPortAttr
                     )
 
                     val updated = _discoveredHosts.value

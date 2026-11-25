@@ -40,13 +40,41 @@ pub fn get_nexus_downloads_dir() -> PathBuf {
     target
 }
 
-/// Démarre le serveur HTTP haut débit sur le port 52842
-pub async fn start_http_file_server(state: Arc<Mutex<NetworkState>>, app_handle: AppHandle) {
-    let http_port = {
+/// Ouvre le listener HTTP avec repli automatique de port et met à jour l'état partagé
+pub async fn bind_http_file_listener(
+    state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+) -> Option<tokio::net::TcpListener> {
+    let preferred_port = {
         let guard = state.lock().unwrap();
         guard.http_port
     };
 
+    match crate::network::bind_tcp_with_fallback(preferred_port, &[42842, 32842, 22842]).await {
+        Ok((listener, actual_port)) => {
+            {
+                let mut guard = state.lock().unwrap();
+                guard.http_port = actual_port;
+            }
+            crate::network::emit_status_update(state, app_handle);
+            Some(listener)
+        }
+        Err(err) => {
+            eprintln!(
+                "Erreur d'ouverture du serveur HTTP (préféré {}) : {}",
+                preferred_port, err
+            );
+            None
+        }
+    }
+}
+
+/// Sert les routes HTTP haut débit sur un listener déjà ouvert
+pub async fn serve_http_file_listener(
+    listener: tokio::net::TcpListener,
+    state: Arc<Mutex<NetworkState>>,
+    app_handle: AppHandle,
+) {
     let shared = HttpServerState {
         network: state,
         app_handle,
@@ -68,15 +96,6 @@ pub async fn start_http_file_server(state: Arc<Mutex<NetworkState>>, app_handle:
         // Autorise le streaming de gros fichiers sans limite par défaut d'Axum (2 Mo)
         .layer(DefaultBodyLimit::disable())
         .with_state(shared);
-
-    let bind_addr = format!("0.0.0.0:{}", http_port);
-    let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
-        Ok(l) => l,
-        Err(err) => {
-            eprintln!("Erreur d'ouverture du serveur HTTP {}: {}", bind_addr, err);
-            return;
-        }
-    };
 
     if let Err(err) = axum::serve(listener, app).await {
         eprintln!("Arrêt du serveur HTTP fichiers : {}", err);

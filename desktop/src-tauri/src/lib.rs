@@ -20,8 +20,8 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::network::{
-    NetworkState, detect_local_ipv4_addresses, emit_status_update, generate_hex_token,
-    start_mdns_advertisement, start_websocket_server,
+    NetworkState, bind_websocket_listener, detect_local_ipv4_addresses, emit_status_update,
+    generate_hex_token, serve_websocket_listener, start_mdns_advertisement,
 };
 use crate::protocol::{
     ClipboardHistoryEntry, FileTransferRecord, InputSettings, PhoneNotificationRecord,
@@ -771,13 +771,6 @@ pub fn run() {
                 }
             }
 
-            // Démarre l'annonce mDNS sur un fil d'exécution dédié
-            let mdns_state = Arc::clone(&shared_state);
-            let mdns_app = app_handle.clone();
-            std::thread::spawn(move || {
-                start_mdns_advertisement(mdns_state, mdns_app);
-            });
-
             // Démarre la surveillance du presse-papiers sur un fil d'exécution dédié
             let clip_state = Arc::clone(&shared_state);
             let clip_app = app_handle.clone();
@@ -785,18 +778,35 @@ pub fn run() {
                 clipboard::start_clipboard_monitor(clip_state, clip_app);
             });
 
-            // Démarre le serveur WebSocket local dans le runtime asynchrone de Tauri
-            let ws_state = Arc::clone(&shared_state);
-            let ws_app = app_handle.clone();
+            // Ouvre les serveurs WebSocket et HTTP (avec repli automatique de port si réservé par Windows/Hyper-V),
+            // puis publie l'annonce mDNS avec les ports réels.
+            let net_state = Arc::clone(&shared_state);
+            let net_app = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                start_websocket_server(ws_state, ws_app).await;
-            });
+                let ws_listener = bind_websocket_listener(&net_state, &net_app).await;
+                let http_listener = file_server::bind_http_file_listener(&net_state, &net_app).await;
 
-            // Démarre le serveur HTTP haut débit pour les fichiers et images du presse-papiers
-            let http_state = Arc::clone(&shared_state);
-            let http_app = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                file_server::start_http_file_server(http_state, http_app).await;
+                let mdns_state = Arc::clone(&net_state);
+                let mdns_app = net_app.clone();
+                std::thread::spawn(move || {
+                    start_mdns_advertisement(mdns_state, mdns_app);
+                });
+
+                if let Some(listener) = ws_listener {
+                    let ws_state = Arc::clone(&net_state);
+                    let ws_app = net_app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        serve_websocket_listener(listener, ws_state, ws_app).await;
+                    });
+                }
+
+                if let Some(listener) = http_listener {
+                    let http_state = Arc::clone(&net_state);
+                    let http_app = net_app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        file_server::serve_http_file_listener(listener, http_state, http_app).await;
+                    });
+                }
             });
 
             // Démarre les hooks souris/clavier Windows pour le basculement au bord d'écran

@@ -274,15 +274,55 @@ fn generate_qr_svg(content: &str) -> String {
     }
 }
 
+/// Ouvre un socket TCP en essayant le port préféré, puis des ports de repli hors plages
+/// réservées Windows/Hyper-V/WSL2, et enfin un port libre attribué par l'OS (`0`).
+pub async fn bind_tcp_with_fallback(
+    preferred: u16,
+    fallbacks: &[u16],
+) -> std::io::Result<(TcpListener, u16)> {
+    let mut candidates = Vec::with_capacity(fallbacks.len() + 2);
+    candidates.push(preferred);
+    candidates.extend_from_slice(fallbacks);
+    candidates.push(0);
+
+    let mut last_err = None;
+    for port in candidates {
+        let addr = format!("0.0.0.0:{}", port);
+        match TcpListener::bind(&addr).await {
+            Ok(listener) => {
+                let actual_port = listener.local_addr()?.port();
+                if actual_port != preferred {
+                    eprintln!(
+                        "Port {} indisponible : bascule automatique sur le port {}",
+                        preferred, actual_port
+                    );
+                }
+                return Ok((listener, actual_port));
+            }
+            Err(err) => {
+                last_err = Some(err);
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "Aucun port TCP disponible",
+        )
+    }))
+}
+
 /// Publie le service `_nexuslink._tcp.local.` via mDNS sur le réseau local
 pub fn start_mdns_advertisement(state: Arc<Mutex<NetworkState>>, app_handle: AppHandle) {
-    let (device_id, device_name, ws_port, udp_port, local_ips) = {
+    let (device_id, device_name, ws_port, udp_port, http_port, local_ips) = {
         let guard = state.lock().unwrap();
         (
             guard.device_id.clone(),
             guard.device_name.clone(),
             guard.ws_port,
             guard.udp_port,
+            guard.http_port,
             guard.local_ips.clone(),
         )
     };
@@ -297,6 +337,7 @@ pub fn start_mdns_advertisement(state: Arc<Mutex<NetworkState>>, app_handle: App
             ("device_id", device_id),
             ("device_name", device_name),
             ("udp_port", udp_port.to_string()),
+            ("http_port", http_port.to_string()),
         ];
 
         if let Ok(service_info) = ServiceInfo::new(
@@ -318,32 +359,42 @@ pub fn start_mdns_advertisement(state: Arc<Mutex<NetworkState>>, app_handle: App
     }
 }
 
-/// Démarre le serveur WebSocket local pour l'appairage et les événements temps réel
-pub async fn start_websocket_server(state: Arc<Mutex<NetworkState>>, app_handle: AppHandle) {
-    let ws_port = {
+/// Ouvre le listener WebSocket avec repli automatique de port et met à jour l'état partagé
+pub async fn bind_websocket_listener(
+    state: &Arc<Mutex<NetworkState>>,
+    app_handle: &AppHandle,
+) -> Option<TcpListener> {
+    let preferred_port = {
         let guard = state.lock().unwrap();
         guard.ws_port
     };
 
-    let bind_addr = format!("0.0.0.0:{}", ws_port);
-    let listener = match TcpListener::bind(&bind_addr).await {
-        Ok(l) => {
+    match bind_tcp_with_fallback(preferred_port, &[42840, 32840, 22840]).await {
+        Ok((listener, actual_port)) => {
             {
                 let mut guard = state.lock().unwrap();
+                guard.ws_port = actual_port;
                 guard.ws_listening = true;
             }
-            emit_status_update(&state, &app_handle);
-            l
+            emit_status_update(state, app_handle);
+            Some(listener)
         }
         Err(err) => {
             eprintln!(
-                "Erreur lors de l'ouverture du port WebSocket {}: {}",
-                bind_addr, err
+                "Erreur lors de l'ouverture du port WebSocket (préféré {}) : {}",
+                preferred_port, err
             );
-            return;
+            None
         }
-    };
+    }
+}
 
+/// Sert les connexions WebSocket entrantes sur un listener déjà ouvert
+pub async fn serve_websocket_listener(
+    listener: TcpListener,
+    state: Arc<Mutex<NetworkState>>,
+    app_handle: AppHandle,
+) {
     while let Ok((stream, peer_addr)) = listener.accept().await {
         let peer_state = Arc::clone(&state);
         let peer_app = app_handle.clone();

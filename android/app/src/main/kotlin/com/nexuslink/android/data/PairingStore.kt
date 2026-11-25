@@ -86,7 +86,7 @@ class PairingStore(context: Context) {
             .putString(KEY_PC_HOST_ADDRESS, host.hostAddress)
             .putInt(KEY_PC_WS_PORT, host.wsPort)
             .putInt(KEY_PC_UDP_PORT, host.udpPort)
-            .putInt(KEY_PC_HTTP_PORT, 52842)
+            .putInt(KEY_PC_HTTP_PORT, host.httpPort)
             .remove(KEY_PAIRING_TOKEN)
             .remove(KEY_SESSION_SECRET)
             .apply()

@@ -175,5 +175,6 @@ data class DiscoveredDesktopHost(
     val deviceName: String,
     val hostAddress: String,
     val wsPort: Int,
-    val udpPort: Int = 52841
+    val udpPort: Int = 52841,
+    val httpPort: Int = 52842
 )
