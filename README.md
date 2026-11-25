@@ -75,6 +75,13 @@ pnpm install
 pnpm tauri dev
 ```
 
+Générer une release (installeurs Windows `.exe` NSIS et `.msi` dans `desktop/src-tauri/target/release/bundle/`) :
+
+```powershell
+cd desktop
+pnpm tauri build
+```
+
 *(Sous Windows, autorisez l'accès au **réseau privé** lorsque le Pare-feu Windows le demande au premier lancement.)*
 
 ### 2. Application Android (`android/`)
